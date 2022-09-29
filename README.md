@@ -28,3 +28,7 @@ import sklearn.datasets
 X, y = sklearn.datasets.load_iris(return_X_y = True)
 sklearn.model_selection.cross_validate(rf, X, y)
 ```
+
+## Remarks
+- The `RandomForestClassifier` in `asforests` supports *all* the hyperparameters of the standard `RandomForestClassifier` from scikit-learn, with the same sematics.
+- Currently, the forest internally uses a validation fold to build the learning curve. This can imply that the performance of the RF is slightly worse that the one of the standard RF, because less instances are used for training. This will be replaced in a future version by the OOB estimate.
