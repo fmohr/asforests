@@ -1,5 +1,5 @@
 # asforests
-Automatically Stopping Random Forests - a sklearn extension
+Automatically Stopping Random Forests - an sklearn extension
 
 ## Why to use?
 Never worry again about the number of trees you should use in the forest:
