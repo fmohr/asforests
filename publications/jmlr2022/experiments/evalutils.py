@@ -109,11 +109,21 @@ def build_full_forest(openmlid, seed, max_diff, iterations_with_max_diff, binari
     
     memory_init = psutil.Process().memory_info().rss / (1024 * 1024)
     
+    Y_test_hat = np.zeros(Y.shape)
+    
+    t = 1
     while True:
         t_0 = time.time()
         next_score_train = np.round(next(gen), 4)
         t_1 = time.time()
-        next_score_test = np.round(get_brier_score(rf.predict_proba(X_test)), 4)
+        
+        # update posterior distribution on test set
+        y_prob_oob_tree = rf.predict_tree_proba(-1, X_test)
+
+        # update forest's prediction
+        Y_test_hat = (y_prob_oob_tree + t * Y_test_hat) / (t + 1) 
+        
+        next_score_test = np.round(get_brier_score(Y_test_hat), 4)
         t_2 = time.time()
         memory_now = psutil.Process().memory_info().rss / (1024 * 1024) - memory_init
         t_3 = time.time()
@@ -126,4 +136,6 @@ def build_full_forest(openmlid, seed, max_diff, iterations_with_max_diff, binari
             if diff < max_diff:
                 break
         eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][3], 4)}. Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
+        
+        t += 1
     return history

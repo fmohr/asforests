@@ -51,7 +51,10 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
             "stop_when_horizontal": stop_when_horizontal
         }
         self.logger = logging.getLogger("ASRFClassifier")
-        
+    
+    def predict_tree_proba(self, tree_id, X):
+        return self.estimators_[tree_id].predict_proba(X)
+    
     def get_score_generator(self, X, y):
         
         # memorize labels
@@ -101,7 +104,7 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                     unsampled_indices = get_unsampled_indices(last_tree)
 
                     # update Y_prob with respect to OOB probs of the tree
-                    y_prob_oob_tree = last_tree.predict_proba(X[unsampled_indices])
+                    y_prob_oob_tree = self.predict_tree_proba(t, X[unsampled_indices])
 
                     # update forest's prediction
                     self.y_prob_oob[unsampled_indices] = (y_prob_oob_tree + t * self.y_prob_oob[unsampled_indices]) / (t + 1) # this will converge according to the law of large numbers
