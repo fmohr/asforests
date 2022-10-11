@@ -31,9 +31,12 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     
     logger.info(f"Starting experiment for openmlid {openmlid} and seed {seed}")
     
+    # treat data sparse?
+    binarize_sparse = openmlid in [1111, 41147, 41150, 42732, 42733]
+    
     # Write intermediate results to database    
     resultfields = {
-        'scores': json.dumps(build_full_forest(openmlid, seed, max_diff, iterations_with_max_difff))
+        'scores': json.dumps(build_full_forest(openmlid, seed, max_diff, iterations_with_max_difff, binarize_sparse = binarize_sparse))
     }
     result_processor.process_results(resultfields)
     

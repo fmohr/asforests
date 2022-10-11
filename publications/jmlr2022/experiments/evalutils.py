@@ -48,6 +48,7 @@ def get_dataset(openmlid):
             y_int[mask] = i
         y = y_int
     
+    print(f"Data read. Shape is {X.shape}.")
     return X, y
 
 def get_mandatory_preprocessing(X, y, binarize_sparse = False):
@@ -74,7 +75,7 @@ def get_mandatory_preprocessing(X, y, binarize_sparse = False):
     else:
         return []
 
-def build_full_forest(openmlid, seed, max_diff, iterations_with_max_diff, classification = True):
+def build_full_forest(openmlid, seed, max_diff, iterations_with_max_diff, binarize_sparse, classification = True):
     
     print("Loading dataset")
     X, y = get_dataset(openmlid)
@@ -84,7 +85,7 @@ def build_full_forest(openmlid, seed, max_diff, iterations_with_max_diff, classi
     print("split created, now building forest")
     
     # check whether we must pre-process
-    preprocessing = get_mandatory_preprocessing(X_train, y_train)
+    preprocessing = get_mandatory_preprocessing(X_train, y_train, binarize_sparse)
     if preprocessing:
         pl = sklearn.pipeline.Pipeline(preprocessing)
         print(f"Modifying inputs with {pl}")
