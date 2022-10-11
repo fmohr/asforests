@@ -64,7 +64,7 @@ def get_mandatory_preprocessing(X, y, binarize_sparse = False):
     if len(categorical_features) > 0 or sum(missing_values_per_feature) > 0:
         categorical_transformer = Pipeline([
             ("imputer", sklearn.impute.SimpleImputer(strategy="most_frequent")),
-            ("binarizer", sklearn.preprocessing.OneHotEncoder(handle_unknown='ignore', sparse = binarize_sparse)),
+            ("binarizer", sklearn.preprocessing.OneHotEncoder(drop='first', sparse = binarize_sparse)),
         ])
         return [("impute_and_binarize", ColumnTransformer(
             transformers=[
