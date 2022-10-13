@@ -133,7 +133,7 @@ def build_full_forest(openmlid, seed, max_diff, iterations_with_max_diff, binari
         if len(history) > iterations_with_max_diff:
             window = np.array(history[-iterations_with_max_diff:])
             diff = np.round(max(window[:,3]) - min(window[:,3]), 5)
-            if diff < max_diff:
+            if diff <= max_diff:
                 break
         eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][3], 4)}. Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
         
