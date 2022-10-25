@@ -51,10 +51,10 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     
     # prepare experiment
     epsilons = [10**i for i in range(-3, 0)]
-    w_mins = [i for i in list(range(2, 10))]# + list(range(10, 100, 10)) + list(range(100, 1001, 100))]
+    w_mins = [i for i in list(range(2, 10)) + list(range(10, 100, 10)) + list(range(100, 1001, 100))]
     deltas = w_mins
-    extrapolation_multipliers = [10**exp for exp in range(3)]
-    bootstrap_repeats_options = [0, 2]#, 5, 10, 20, 100]
+    extrapolation_multipliers = [10**exp for exp in range(6)]
+    bootstrap_repeats_options = [0, 2, 5, 10, 20, 100]
     
     domains = [epsilons, w_mins, deltas, extrapolation_multipliers, bootstrap_repeats_options]
     num_combinations = np.prod([len(D) for D in domains])
