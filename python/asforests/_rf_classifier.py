@@ -42,6 +42,7 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
         self.epsilon = epsilon
         self.extrapolation_multiplier = extrapolation_multiplier
         self.max_trees = max_trees
+        self.stop_when_horizontal = stop_when_horizontal
         self.args = {
             "step_size": step_size,
             "w_min": w_min,
@@ -124,10 +125,9 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
     def fit(self, X, y):
         
         self.reset()
-        
         gen = self.get_score_generator(X, y)
         
         # always use Brier score supplier
-        grower = ForestGrower(gen, 1, logger = self.logger, random_state = self.random_state, **self.args)
+        grower = ForestGrower(gen,  d = 1, delta = self.w_min, logger = self.logger, random_state = self.random_state, **self.args)
         grower.grow()
         self.histories = grower.histories
