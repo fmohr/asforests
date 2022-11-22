@@ -25,7 +25,7 @@ class ForestGrower:
         self.extrapolation_multiplier = extrapolation_multiplier
         self.max_trees = max_trees
         self.logger = logger
-        self.random_state = random_state
+        self.random_state = np.random.RandomState(random_state) if type(random_state) == int else random_state
         self.stop_when_horizontal = stop_when_horizontal
         self.bootstrap_repeats = bootstrap_repeats
         self.bootstrap_init_seed = self.random_state.randint(10**5)
