@@ -5,7 +5,7 @@ import logging
 from ._grower import ForestGrower
 
 
-class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
+class ExtraTreesClassifier(sklearn.ensemble.ExtraTreesClassifier):
     
     def __init__(self, step_size = 5, w_min = 50, epsilon = 0.01, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, criterion='gini', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features='sqrt', max_leaf_nodes=None, min_impurity_decrease=0.0, bootstrap=True, n_jobs=None, random_state=None, verbose=0, class_weight=None, ccp_alpha=0.0, max_samples=None):
         self.kwargs = {
@@ -29,9 +29,6 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
             "warm_start": True
         }
         super().__init__(**self.kwargs)
-        
-        if n_jobs is not None and n_jobs > step_size:
-            raise ValueError(f"The number of jobs cannot be bigger than step_size.")
         
         if random_state is None:
             random_state = 0
@@ -102,7 +99,7 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                 
                 # add a new tree
                 self.n_estimators += self.step_size
-                super(RandomForestClassifier, self).fit(X, y)
+                super(ExtraTreesClassifier, self).fit(X, y)
 
                 # update distribution based on last trees
                 for t in range(self.n_estimators - self.step_size, self.n_estimators):
@@ -119,7 +116,7 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                     # update forest's prediction
                     self.y_prob_oob[unsampled_indices] = (y_prob_oob_tree + t * self.y_prob_oob[unsampled_indices]) / (t + 1) # this will converge according to the law of large numbers
 
-                    yield get_brier_score(self.y_prob_oob)
+                    yield get_brier_score(self.y_prob_oob) # yield a result after each update
         
         return f() # creates the generator and returns it
         

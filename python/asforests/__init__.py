@@ -1,2 +1,4 @@
 from ._rf_classifier import RandomForestClassifier
+from ._exf_classifier import ExtraTreesClassifier
 from ._rf_regressor import RandomForestRegressor
+from ._exf_regressor import ExtraTreesRegressor
