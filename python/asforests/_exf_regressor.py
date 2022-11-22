@@ -4,34 +4,15 @@ import sklearn.ensemble
 import logging
 from ._grower import ForestGrower
 
-
-class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
+class ExtraTreesRegressor(sklearn.ensemble.ExtraTreesRegressor):
     
-    def __init__(self, step_size = 5, w_min = 50, epsilon = 0.01, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, criterion='gini', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features='sqrt', max_leaf_nodes=None, min_impurity_decrease=0.0, bootstrap=True, n_jobs=None, random_state=None, verbose=0, class_weight=None, ccp_alpha=0.0, max_samples=None):
+    def __init__(self, step_size = 5, w_min = 50, epsilon = 10, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, random_state = None):
         self.kwargs = {
             "n_estimators": 0, # will be increased steadily
-            "criterion": criterion,
-            "max_depth": max_depth,
-            "min_samples_split": min_samples_split,
-            "min_samples_leaf": min_samples_leaf,
-            "min_weight_fraction_leaf": min_weight_fraction_leaf,
-            "max_features": max_features,
-            "max_leaf_nodes": max_leaf_nodes,
-            "min_impurity_decrease": min_impurity_decrease,
-            "bootstrap": bootstrap,
             "oob_score": False,
-            "n_jobs": n_jobs,
-            "random_state": random_state,
-            "verbose": verbose,
-            "class_weight": class_weight,
-            "ccp_alpha": ccp_alpha,
-            "max_samples": max_samples,
             "warm_start": True
         }
         super().__init__(**self.kwargs)
-        
-        if n_jobs is not None and n_jobs > step_size:
-            raise ValueError(f"The number of jobs cannot be bigger than step_size.")
         
         if random_state is None:
             random_state = 0
@@ -57,24 +38,15 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
             "max_trees": max_trees,
             "stop_when_horizontal": stop_when_horizontal
         }
-        self.logger = logging.getLogger("ASRFClassifier")
+        self.logger = logging.getLogger("ASRFRegressor")
         
     def __str__(self):
-        return "ASRFClassifier"
-    
-    def predict_tree_proba(self, tree_id, X):
-        return self.estimators_[tree_id].predict_proba(X)
-    
+        return "ASRFRegressor"
+        
+    def predict_tree(self, tree_id, X):
+        return self.estimators_[tree_id].predict(X)
+        
     def get_score_generator(self, X, y):
-        
-        # memorize labels
-        labels = list(np.unique(y))
-        
-        # one hot encoding of target
-        n, k = len(y), len(labels)
-        Y = np.zeros((n, k))
-        for i, true_label in enumerate(y):
-            Y[i,labels.index(true_label)] = 1
         
         # stuff to efficiently compute OOB
         n_samples = y.shape[0]
@@ -89,12 +61,12 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                 n_samples_bootstrap,
             )
         
-        # create a function that can efficiently compute the Brier score for a probability distribution
-        def get_brier_score(Y_prob):
-            return np.mean(np.sum((Y_prob - Y)**2, axis=1))
+        # create a function that can efficiently compute the MSE
+        def get_mse_score(y_pred):
+            return np.mean((y_pred - y)**2)
         
         # this is a variable that is being used by the supplier
-        self.y_prob_oob = np.zeros((X.shape[0], len(labels)))
+        self.y_oob = np.zeros(X.shape[0])
         
         def f():
             
@@ -102,7 +74,7 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                 
                 # add a new tree
                 self.n_estimators += self.step_size
-                super(RandomForestClassifier, self).fit(X, y)
+                super(ExtraTreesRegressor, self).fit(X, y)
 
                 # update distribution based on last trees
                 for t in range(self.n_estimators - self.step_size, self.n_estimators):
@@ -114,16 +86,15 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                     unsampled_indices = get_unsampled_indices(last_tree)
 
                     # update Y_prob with respect to OOB probs of the tree
-                    y_prob_oob_tree = self.predict_tree_proba(t, X[unsampled_indices])
+                    y_oob_tree = self.predict_tree(t, X[unsampled_indices])
 
                     # update forest's prediction
-                    self.y_prob_oob[unsampled_indices] = (y_prob_oob_tree + t * self.y_prob_oob[unsampled_indices]) / (t + 1) # this will converge according to the law of large numbers
+                    self.y_oob[unsampled_indices] = (y_oob_tree + t * self.y_oob[unsampled_indices]) / (t + 1) # this will converge according to the law of large numbers
 
-                    yield get_brier_score(self.y_prob_oob)
+                    yield get_mse_score(self.y_oob)
         
         return f() # creates the generator and returns it
-        
-    
+               
     def reset(self):
         # set numbers of trees to 0
         self.warm_start = False
@@ -132,11 +103,8 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
         self.warm_start = True
     
     def fit(self, X, y):
-        
         self.reset()
         gen = self.get_score_generator(X, y)
-        
-        # always use Brier score supplier
         grower = ForestGrower(gen,  d = 1, logger = self.logger, random_state = self.random_state, **self.args)
         grower.grow()
         self.histories = grower.histories

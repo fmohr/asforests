@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
   name = 'asforests',
   packages = ['asforests'],
-  version = '0.0.1',
+  version = '0.0.7',
   license='MIT',
   description = 'Automatically Stopping Random Forests',
   author = 'Felix Mohr',                   # Type in your name

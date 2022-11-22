@@ -90,5 +90,5 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 
 if __name__ == '__main__':
     job_name = sys.argv[1]
-    experimenter = PyExperimenter(config_file="config/experiments-analysis.cfg", name = job_name)
+    experimenter = PyExperimenter(experiment_configuration_file_path="config/experiments-analysis.cfg", name = job_name)
     experimenter.execute(run_experiment, max_experiments=-1, random_order=True)

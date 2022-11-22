@@ -11,7 +11,7 @@ def get_dummy_info_supplier(history):
 
 class ForestGrower:
     
-    def __init__(self, info_supplier, d, step_size, w_min, epsilon, delta, extrapolation_multiplier, max_trees, random_state, stop_when_horizontal, bootstrap_repeats, logger):
+    def __init__(self, info_supplier, d, step_size, w_min, epsilon, delta, extrapolation_multiplier, max_trees, random_state, stop_when_horizontal, bootstrap_repeats, logger = None):
         
         if w_min <= step_size:
             raise ValueError("\"w_min\" must be strictly bigger than the value of \"step_size\".")
@@ -28,6 +28,7 @@ class ForestGrower:
         self.random_state = random_state
         self.stop_when_horizontal = stop_when_horizontal
         self.bootstrap_repeats = bootstrap_repeats
+        self.bootstrap_init_seed = self.random_state.randint(10**5)
         
     def estimate_slope(self, window:np.ndarray):
         max_index_to_have_two_values = max(0, len(window) - self.w_min)
@@ -47,7 +48,7 @@ class ForestGrower:
         if min(window) < max(window):
             try:
                 if self.bootstrap_repeats > 1:
-                    result = bootstrap((list(range(len(window))),), get_slope, vectorized = False, n_resamples = self.bootstrap_repeats, random_state = self.random_state + self.t, method = "percentile")
+                    result = bootstrap((list(range(len(window))),), get_slope, vectorized = False, n_resamples = self.bootstrap_repeats, random_state = self.bootstrap_init_seed + self.t, method = "percentile")
                     ci = result.confidence_interval
                     return max(np.abs([ci.high, ci.low]))
                 else:
@@ -90,8 +91,10 @@ class ForestGrower:
     def step(self):
         self.logger.debug(f"Starting Iteration {self.t}.")
         self.logger.debug(f"\tAdding {self.step_size} trees to the forest.")
-        score = next(self.info_supplier)
-        self.logger.debug(f"\tDone. Forest size is now {self.t * self.step_size}. Score: {score}")
+        new_scores = []
+        for i in range(self.step_size):
+            new_scores.append(next(self.info_supplier))
+        self.logger.debug(f"\tDone. Forest size is now {self.t * self.step_size}. Scores to be added: {new_scores}")
 
         for i in self.open_dims.copy():
 
@@ -100,30 +103,30 @@ class ForestGrower:
             # update history for this dimension
             cur_window_start = self.start_of_convergence_window[i]
             history = self.histories[i]
-            last_info = score
+            history.extend(new_scores)
             s_min = self.s_mins[i]
             s_max = self.s_maxs[i]
-            history.append(last_info)
             
             if not self.converged:
 
                 # criterion 1: current Cauchy window size (here given by index of where the convergence window starts)
                 self.logger.debug(f"\tForest not converged in criterion  {i}. Computing differences from forest size {cur_window_start * self.step_size} on.")
-                if s_min > last_info:
-                    s_min = self.s_mins[i] = last_info
-                if last_info > s_max:
-                    s_max = self.s_maxs[i] = last_info
-                
-                if s_max - s_min > self.epsilon:
-                    cur_window_start = len(history)
-                    s_min_tmp = s_max_tmp = last_info
-                    while s_max_tmp - s_min_tmp <= self.epsilon:
-                        s_max = s_max_tmp
-                        s_min = s_min_tmp
-                        cur_window_start -= 1
-                        s_min_tmp = min(s_min, history[cur_window_start - 1])
-                        s_max_tmp = max(s_max, history[cur_window_start - 1])
-                    self.start_of_convergence_window[i] = cur_window_start
+                for score in history[-self.step_size:]:
+                    if s_min > score:
+                        s_min = self.s_mins[i] = score
+                    if score > s_max:
+                        s_max = self.s_maxs[i] = score
+
+                    if s_max - s_min > self.epsilon:
+                        cur_window_start = len(history)
+                        s_min_tmp = s_max_tmp = score
+                        while s_max_tmp - s_min_tmp <= self.epsilon:
+                            s_max = s_max_tmp
+                            s_min = s_min_tmp
+                            cur_window_start -= 1
+                            s_min_tmp = min(s_min, history[cur_window_start - 1])
+                            s_max_tmp = max(s_max, history[cur_window_start - 1])
+                        self.start_of_convergence_window[i] = cur_window_start
                 w = len(history) - cur_window_start
                 self.is_cauchy[i] = w >= self.w_min
 
