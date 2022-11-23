@@ -18,7 +18,7 @@ from asforests._grower import *
 logger = logging.getLogger("exp")
 logger.setLevel(logging.WARN)
 ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
+ch.setLevel(logging.WARN)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
@@ -32,8 +32,12 @@ def get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, extrap
 
     # now run algorithm
     start = time.time()
-    grower = ForestGrower(info_supplier, d = 1, step_size = 1, w_min = w_min, epsilon = epsilon, extrapolation_multiplier = extrapolation_multiplier, delta = delta, max_trees = np.inf, random_state = seed, stop_when_horizontal = True, bootstrap_repeats = bootstrap_repeats, logger = logger)
-    grower.grow()
+    step_size = min(w_min - 1, min(100, max(10, int(extrapolation_multiplier / 10**2))))
+    grower = ForestGrower(info_supplier, d = 1, step_size = step_size, w_min = w_min, epsilon = epsilon, extrapolation_multiplier = extrapolation_multiplier, delta = delta, max_trees = np.inf, random_state = seed, stop_when_horizontal = True, bootstrap_repeats = bootstrap_repeats, logger = logger)
+    try:
+        grower.grow()
+    except StopIteration:
+        pass
     end = time.time()
     output_history = grower.histories[0]
     runtime = np.round((end - start) * 1000)
@@ -44,7 +48,6 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     # Extracting given parameters
     openmlid = keyfields['openmlid']
     seed = keyfields['seed']
-    epsilon = 10**int(keyfields['epsilon_exp'])
 
     # load results
     logger.debug("Reading in data.")
@@ -53,29 +56,34 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     input_history = json.loads(row)
 
     # prepare experiment
+    epsilons = [10**exp for exp in range(-3, 0)]
     w_mins = [i for i in list(range(2, 10)) + list(range(10, 100, 10)) + list(range(100, 1001, 100))]
+    w_mins.reverse()
     deltas = w_mins
     extrapolation_multipliers = [10**exp for exp in range(6)]
+    extrapolation_multipliers.reverse()
     bootstrap_repeats_options = [0, 2, 5, 10, 20]
+    bootstrap_repeats_options.reverse()
 
-    domains = [w_mins, deltas, extrapolation_multipliers, bootstrap_repeats_options]
+    domains = [epsilons, w_mins, deltas, extrapolation_multipliers, bootstrap_repeats_options]
     num_combinations = np.prod([len(D) for D in domains])
 
-    logger.info(f"Starting experiment with {num_combinations} entries for openmlid {openmlid}, seed {seed}, and eps = {epsilon}")
+    logger.info(f"Starting experiment with {num_combinations} entries for openmlid {openmlid}, seed {seed}.")
 
     # treat data sparse?
     pbar = tqdm(total = num_combinations)
     rows = []
-    for i, w_min in enumerate(w_mins):
-        min_delta = deltas[0]#deltas[max(0, i - 9)]
-        for delta in deltas:
-            for c in extrapolation_multipliers:
-                for bootstrap_repeats in bootstrap_repeats_options:
-                    if delta >= min_delta and delta <= w_min:
-                        print(f"{datetime.now()}: eps = {epsilon}, w_min = {w_min}, delta = {delta}, c = {c}, bt_repeats = {bootstrap_repeats}.")
-                        m,g,t = get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats)
-                        rows.append([epsilon, w_min, delta, c, bootstrap_repeats, m, np.round(g, 4), t])
-                    pbar.update(1)
+    for epsilon in epsilons:
+        for i, w_min in enumerate(w_mins):
+            min_delta = deltas[-1]#deltas[max(0, i - 9)]
+            for delta in deltas:
+                for c in extrapolation_multipliers:
+                    for bootstrap_repeats in bootstrap_repeats_options:
+                        if delta >= min_delta and delta <= w_min:
+                            print(f"{datetime.now()}: eps = {epsilon}, w_min = {w_min}, delta = {delta}, c = {c}, bt_repeats = {bootstrap_repeats}.")
+                            m,g,t = get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats)
+                            rows.append([epsilon, w_min, delta, c, bootstrap_repeats, m, np.round(g, 4), t])
+                        pbar.update(1)
     pbar.close()
     out = json.dumps(rows)
 
