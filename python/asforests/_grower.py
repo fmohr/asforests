@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import bootstrap
 import logging
+import time
 
 def get_dummy_info_supplier(history):
     
@@ -29,30 +30,32 @@ class ForestGrower:
         self.stop_when_horizontal = stop_when_horizontal
         self.bootstrap_repeats = bootstrap_repeats
         self.bootstrap_init_seed = self.random_state.randint(10**5)
+        self.cov_times = []
         
     def estimate_slope(self, window:np.ndarray):
         max_index_to_have_two_values = max(0, len(window) - self.w_min)
         window = window[min(max_index_to_have_two_values, len(window) - self.delta):]
         if len(window) == 1:
             raise ValueError(f"Window must have length of more than 1.")
-        window_domain = np.array(range(0, len(window) * self.step_size + 1, self.step_size))
+        window_domain = np.arange(0, len(window))
         self.logger.debug(f"\tEstimating slope for window of size {len(window)}.")
+        
         def get_slope(indices = slice(0, len(window))):
             self.logger.debug(indices)
-            if len(np.unique(indices)) == 1: # if there is just one value in the bootstrap sample, return nan
-                return np.nan
-            cov = np.cov(np.array([window_domain[indices], window[indices]]))
-            slope_in_window = cov[0,1] / cov[0,0]
-            return slope_in_window
+            cov = np.cov(window_domain[indices], window[indices])
+            return cov[0,1] / cov[0,0] if cov[0,0] > 0 else np.nan # if there is just one value in the bootstrap sample, return nan
         
-        if min(window) < max(window):
+        if np.min(window) < np.max(window):
             try:
                 if self.bootstrap_repeats > 1:
+                    start = time.time()
                     result = bootstrap((list(range(len(window))),), get_slope, vectorized = False, n_resamples = self.bootstrap_repeats, random_state = self.bootstrap_init_seed + self.t, method = "percentile")
+                    self.cov_times.append(time.time() - start)
                     ci = result.confidence_interval
-                    return max(np.abs([ci.high, ci.low]))
+                    return np.max(np.abs([ci.high, ci.low]))
                 else:
-                    return np.abs(get_slope(list(range(len(window)))))
+                    dummy = list(range(len(window)))
+                    return np.abs(get_slope(dummy))
                     
             except ValueError:
                 return 0
@@ -65,7 +68,7 @@ class ForestGrower:
         
         # now start training
         self.logger.info(f"Start training with following parameters:\n\tStep Size: {self.step_size}\n\tepsilon: {self.epsilon}")
-        while self.d > 0 and (self.max_trees is None or self.t * self.step_size <= self.max_trees):
+        while self.d > 0 and (self.max_trees is None or len(self.histories[0]) + self.step_size <= self.max_trees):
             self.step()
         self.logger.info("Forest grown completely. Stopping routine!")
         
@@ -88,12 +91,21 @@ class ForestGrower:
         mean_domain = np.mean(window_domain)
         self.qa = [i - mean_domain for i in window_domain]
         
+        self.time_stats_steps = []
+        self.time_stats_supplier = []
+        self.time_stats_preamble = []
+        self.time_stats_cauchy = []
+        self.time_stats_slope = []
+        
     def step(self):
+        start_step = time.time()
         self.logger.debug(f"Starting Iteration {self.t}.")
         self.logger.debug(f"\tAdding {self.step_size} trees to the forest.")
         new_scores = []
         for i in range(self.step_size):
+            start = time.time()
             new_scores.append(next(self.info_supplier))
+            self.time_stats_supplier.append(time.time() - start)
         self.logger.debug(f"\tDone. Forest size is now {self.t * self.step_size}. Scores to be added: {new_scores}")
 
         for i in self.open_dims.copy():
@@ -101,38 +113,48 @@ class ForestGrower:
             self.logger.debug(f"\tChecking dimension {i}. Cauchy criterion in this dimension: {self.is_cauchy[i]}")
 
             # update history for this dimension
+            start = time.time()
             cur_window_start = self.start_of_convergence_window[i]
             history = self.histories[i]
             history.extend(new_scores)
+            history = np.fromiter(history, dtype=np.float64) # convert locally to numpy for faster processing. Roughly twice as fast as np.array
             s_min = self.s_mins[i]
             s_max = self.s_maxs[i]
+            self.time_stats_preamble.append(time.time() - start)
             
             if not self.converged:
 
                 # criterion 1: current Cauchy window size (here given by index of where the convergence window starts)
                 self.logger.debug(f"\tForest not converged in criterion  {i}. Computing differences from forest size {cur_window_start * self.step_size} on.")
+                start = time.time()
+                adjustment = None
                 for score in history[-self.step_size:]:
                     if s_min > score:
                         s_min = self.s_mins[i] = score
+                        adjustment = "min"
                     if score > s_max:
                         s_max = self.s_maxs[i] = score
-
-                    if s_max - s_min > self.epsilon:
-                        cur_window_start = len(history)
-                        s_min_tmp = s_max_tmp = score
-                        while s_max_tmp - s_min_tmp <= self.epsilon:
-                            s_max = s_max_tmp
-                            s_min = s_min_tmp
-                            cur_window_start -= 1
-                            s_min_tmp = min(s_min, history[cur_window_start - 1])
-                            s_max_tmp = max(s_max, history[cur_window_start - 1])
-                        self.start_of_convergence_window[i] = cur_window_start
+                        adjustment = "max"
+                
+                # if the window must be adjusted
+                if s_max > s_min + self.epsilon:
+                    if adjustment == "min":
+                        cur_window_start = np.where(history[cur_window_start:] > (s_min + self.epsilon))[0][-1] + 1 + cur_window_start
+                        s_max = self.s_maxs[i] = np.max(history[cur_window_start:])
+                    elif adjustment == "max":
+                        cur_window_start = np.where(history[cur_window_start:] < (s_max - self.epsilon))[0][-1] + 1 + cur_window_start
+                        s_min = self.s_mins[i] = np.min(history[cur_window_start:])
+                    else:
+                        raise Exception("There must be an adjustment!")
+                self.start_of_convergence_window[i] = cur_window_start
                 w = len(history) - cur_window_start
                 self.is_cauchy[i] = w >= self.w_min
+                self.time_stats_cauchy.append(time.time() - start)
 
             # if the dimension is Cauchy convergent, also estimate the slope
             if self.is_cauchy[i]:
-                window = np.array(history[cur_window_start:])
+                start = time.time()
+                window = history[cur_window_start:]
                 self.logger.debug(f"\tCauchy holds. Checking slope in window of length {len(window)} with entries since iteration {cur_window_start}.")
                 if len(window) <= 1:
                     self.logger.info("RUNNING BEFORE EXCEPTION")
@@ -151,7 +173,9 @@ class ForestGrower:
                     if self.stop_when_horizontal:
                         self.open_dims.remove(i)
                         self.d -= 1
+                self.time_stats_slope.append(time.time() - start)
             else:
                 self.slope_hist.append(np.nan)
             self.cauchy_history.append(self.is_cauchy.copy())
         self.t += 1
+        self.time_stats_steps.append(time.time() - start_step)
