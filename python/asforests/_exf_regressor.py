@@ -6,7 +6,7 @@ from ._grower import ForestGrower
 
 class ExtraTreesRegressor(sklearn.ensemble.ExtraTreesRegressor):
     
-    def __init__(self, step_size = 5, w_min = 50, epsilon = 10, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, random_state = None):
+    def __init__(self, step_size = 5, w_min = 50, delta = 10, epsilon = 10, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, random_state = None):
         self.kwargs = {
             "n_estimators": 0, # will be increased steadily
             "oob_score": False,
@@ -31,7 +31,7 @@ class ExtraTreesRegressor(sklearn.ensemble.ExtraTreesRegressor):
         self.args = {
             "step_size": step_size,
             "w_min": w_min,
-            "delta": w_min,
+            "delta": delta,
             "epsilon": epsilon,
             "extrapolation_multiplier": extrapolation_multiplier,
             "bootstrap_repeats": bootstrap_repeats,

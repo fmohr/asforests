@@ -7,7 +7,7 @@ from ._grower import ForestGrower
 
 class ExtraTreesClassifier(sklearn.ensemble.ExtraTreesClassifier):
     
-    def __init__(self, step_size = 5, w_min = 50, epsilon = 0.01, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, criterion='gini', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features='sqrt', max_leaf_nodes=None, min_impurity_decrease=0.0, bootstrap=True, n_jobs=None, random_state=None, verbose=0, class_weight=None, ccp_alpha=0.0, max_samples=None):
+    def __init__(self, step_size = 5, w_min = 50, delta = 10, epsilon = 0.01, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, criterion='gini', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features='sqrt', max_leaf_nodes=None, min_impurity_decrease=0.0, bootstrap=True, n_jobs=None, random_state=None, verbose=0, class_weight=None, ccp_alpha=0.0, max_samples=None):
         self.kwargs = {
             "n_estimators": 0, # will be increased steadily
             "criterion": criterion,
@@ -47,7 +47,7 @@ class ExtraTreesClassifier(sklearn.ensemble.ExtraTreesClassifier):
         self.args = {
             "step_size": step_size,
             "w_min": w_min,
-            "delta": w_min,
+            "delta": delta,
             "epsilon": epsilon,
             "extrapolation_multiplier": extrapolation_multiplier,
             "bootstrap_repeats": bootstrap_repeats,
