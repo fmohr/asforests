@@ -33,10 +33,9 @@ class ForestGrower:
         self.cov_times = []
         
     def estimate_slope(self, window:np.ndarray):
-        max_index_to_have_two_values = max(0, len(window) - self.w_min)
-        window = window[min(max_index_to_have_two_values, len(window) - self.delta):]
-        if len(window) == 1:
-            raise ValueError(f"Window must have length of more than 1.")
+        window = window[-self.delta:]
+        if len(window) < 2:
+            raise ValueError(f"Window must have length of at least 2.")
         window_domain = np.arange(0, len(window))
         self.logger.debug(f"\tEstimating slope for window of size {len(window)}.")
         
