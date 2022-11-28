@@ -1,5 +1,4 @@
 from py_experimenter.experimenter import PyExperimenter
 
-experimenter = PyExperimenter(config_file="config/experiments.cfg")
-#experimenter.reset_experiments("done")
+experimenter = PyExperimenter(experiment_configuration_file_path="config/experiments-fullforests-regression.cfg")
 experimenter.fill_table_from_config()

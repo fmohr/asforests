@@ -6,7 +6,7 @@ from ._grower import ForestGrower
 
 class RandomForestRegressor(sklearn.ensemble.RandomForestRegressor):
     
-    def __init__(self, step_size = 5, w_min = 50, delta = 10, epsilon = 10, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, random_state = None):
+    def __init__(self, step_size = 5, w_min = 50, delta = 10, epsilon = 10, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, random_state = None, prediction_map_for_scoring = lambda x: (x - np.median(y_train)) / (np.max(y_train) - np.min(y_train))):
         self.kwargs = {
             "n_estimators": 0, # will be increased steadily
             "oob_score": False,
@@ -28,6 +28,7 @@ class RandomForestRegressor(sklearn.ensemble.RandomForestRegressor):
         self.max_trees = max_trees
         self.bootstrap_repeats = bootstrap_repeats
         self.stop_when_horizontal = stop_when_horizontal
+        self.prediction_map_for_scoring = prediction_map_for_scoring
         self.args = {
             "step_size": step_size,
             "w_min": w_min,
@@ -62,8 +63,11 @@ class RandomForestRegressor(sklearn.ensemble.RandomForestRegressor):
             )
         
         # create a function that can efficiently compute the MSE
+        y_ref = y if self.prediction_map_for_scoring is None else self.prediction_map_for_scoring(y)
         def get_mse_score(y_pred):
-            return np.mean((y_pred - y)**2)
+            if self.prediction_map_for_scoring is not None:
+                y_pred = self.prediction_map_for_scoring(y_pred)
+            return np.mean((y_pred - y_ref)**2)
         
         # this is a variable that is being used by the supplier
         self.y_oob = np.zeros(X.shape[0])
