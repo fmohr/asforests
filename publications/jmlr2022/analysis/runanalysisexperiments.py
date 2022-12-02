@@ -14,19 +14,24 @@ from datetime import datetime
 from asforests._grower import *
 
 
-
-logger = logging.getLogger("exp")
-logger.setLevel(logging.WARN)
 ch = logging.StreamHandler()
 ch.setLevel(logging.WARN)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
+
+logger = logging.getLogger("exp")
+logger.setLevel(logging.WARN)
 logger.addHandler(ch)
 
-def get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, extrapolation_multiplier, delta, bootstrap_repeats):
+eval_logger = logging.getLogger("evalutils")
+eval_logger.setLevel(logging.DEBUG)
+eval_logger.addHandler(ch)
+
+
+def get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, extrapolation_multiplier, delta, bootstrap_repeats, target_type):
 
     # create info supplier
-    input_scores = [e[3] for e in input_history]
+    input_scores = [e[3 if target_type == "oob" else 4] for e in input_history]
     info_supplier = get_dummy_info_supplier(input_scores)
     final_score = input_scores[-1]
 
@@ -48,6 +53,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     # Extracting given parameters
     openmlid = keyfields['openmlid']
     seed = keyfields['seed']
+    target_type = keyfields['target_type']
 
     # load results
     logger.debug("Reading in data.")
@@ -81,7 +87,8 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
                     for bootstrap_repeats in bootstrap_repeats_options:
                         if delta >= min_delta and delta <= w_min:
                             print(f"{datetime.now()}: eps = {epsilon}, w_min = {w_min}, delta = {delta}, c = {c}, bt_repeats = {bootstrap_repeats}.")
-                            m,g,t = get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats)
+                            m,g,t = get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats, target_type)
+                            print(g)
                             rows.append([epsilon, w_min, delta, c, bootstrap_repeats, m, np.round(g, 4), t])
                         pbar.update(1)
     pbar.close()
@@ -98,11 +105,12 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 
 if __name__ == '__main__':
     job_name = sys.argv[1]
-    experimenter = PyExperimenter(experiment_configuration_file_path="config/experiments-analysis.cfg", name = job_name)
     if True:
+        experimenter = PyExperimenter(experiment_configuration_file_path="config/experiments-analysis-classification.cfg", name = job_name)
         experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
-                "openmlid": 3,
-                "seed": 0
+            "openmlid": 3,
+            "seed": 0,
+            "target_type": "val"
         }, None, None)
