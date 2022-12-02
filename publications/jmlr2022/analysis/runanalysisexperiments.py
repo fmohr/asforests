@@ -74,7 +74,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     domains = [epsilons, w_mins, deltas, extrapolation_multipliers, bootstrap_repeats_options]
     num_combinations = np.prod([len(D) for D in domains])
 
-    logger.info(f"Starting experiment with {num_combinations} entries for openmlid {openmlid}, seed {seed}. Target type is {target_type}.")
+    print(f"Starting experiment with {num_combinations} entries for openmlid {openmlid}, seed {seed}. Target type is {target_type}.")
 
     # treat data sparse?
     pbar = tqdm(total = num_combinations)
