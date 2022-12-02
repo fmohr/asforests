@@ -74,7 +74,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     domains = [epsilons, w_mins, deltas, extrapolation_multipliers, bootstrap_repeats_options]
     num_combinations = np.prod([len(D) for D in domains])
 
-    logger.info(f"Starting experiment with {num_combinations} entries for openmlid {openmlid}, seed {seed}.")
+    logger.info(f"Starting experiment with {num_combinations} entries for openmlid {openmlid}, seed {seed}. Target type is {target_type}.")
 
     # treat data sparse?
     pbar = tqdm(total = num_combinations)
@@ -88,7 +88,6 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
                         if delta >= min_delta and delta <= w_min:
                             print(f"{datetime.now()}: eps = {epsilon}, w_min = {w_min}, delta = {delta}, c = {c}, bt_repeats = {bootstrap_repeats}.")
                             m,g,t = get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats, target_type)
-                            print(g)
                             rows.append([epsilon, w_min, delta, c, bootstrap_repeats, m, np.round(g, 4), t])
                         pbar.update(1)
     pbar.close()
