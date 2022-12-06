@@ -58,8 +58,8 @@ if __name__ == '__main__':
         experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
-            'openmlid': 344,
-            'seed': 2,
+            'openmlid': 315,
+            'seed': 4,
             'max_diff': 0.00001,
             'iterations_with_max_difff': 1000
         }, None, None)
