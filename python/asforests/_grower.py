@@ -139,10 +139,10 @@ class ForestGrower:
                 if s_max > s_min + self.epsilon:
                     if adjustment == "min":
                         cur_window_start = np.where(history[cur_window_start:] > (s_min + self.epsilon))[0][-1] + 1 + cur_window_start
-                        s_max = self.s_maxs[i] = np.max(history[cur_window_start:])
+                        s_max = self.s_maxs[i] = np.max(history[cur_window_start:]) if cur_window_start < len(history) else -np.inf
                     elif adjustment == "max":
                         cur_window_start = np.where(history[cur_window_start:] < (s_max - self.epsilon))[0][-1] + 1 + cur_window_start
-                        s_min = self.s_mins[i] = np.min(history[cur_window_start:])
+                        s_min = self.s_mins[i] = np.min(history[cur_window_start:]) if cur_window_start < len(history) else np.inf
                     else:
                         raise Exception("There must be an adjustment!")
                 self.start_of_convergence_window[i] = cur_window_start
