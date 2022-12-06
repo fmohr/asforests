@@ -20,6 +20,7 @@ logger.addHandler(ch)
 
 eval_logger = logging.getLogger("evalutils")
 eval_logger.setLevel(logging.DEBUG)
+eval_logger.addHandler(ch)
 
 def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_config):
     
@@ -39,7 +40,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     # Write intermediate results to database
     if is_classification:
         resultfields = {
-            'scores': json.dumps(build_full_forest(openmlid, seed, max_diff, iterations_with_max_difff, binarize_sparse = binarize_sparse, drop = drop))
+            'scores': json.dumps(build_full_classification_forest(openmlid, seed, max_diff, iterations_with_max_difff, binarize_sparse = binarize_sparse, drop = drop))
         }
     else:
         resultfields = {
@@ -53,13 +54,13 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 if __name__ == '__main__':
     job_name = sys.argv[1]
     job_type = sys.argv[2]
-    experimenter = PyExperimenter(experiment_configuration_file_path=f"config/experiments-fullforests-{job_type}.cfg", name = job_name)
-    if True:
+    if False:
+        experimenter = PyExperimenter(experiment_configuration_file_path=f"config/experiments-fullforests-{job_type}.cfg", name = job_name)
         experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
-            'openmlid': 344,
-            'seed': 2,
+            'openmlid': 3,
+            'seed': 4,
             'max_diff': 0.00001,
             'iterations_with_max_difff': 1000
         }, None, None)
