@@ -110,6 +110,6 @@ if __name__ == '__main__':
     else:
         run_experiment({
             "openmlid": 3,
-            "seed": 0,
+            "seed": 4,
             "target_type": "val"
         }, None, None)
