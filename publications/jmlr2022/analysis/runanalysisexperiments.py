@@ -106,11 +106,7 @@ if __name__ == '__main__':
     job_name = sys.argv[1]
     if True:
         experimenter = PyExperimenter(experiment_configuration_file_path="config/experiments-analysis-classification.cfg", name = job_name)
-        while True:
-            try:
-                experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
-            except:
-                print("EXCEPT")
+        experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
             "openmlid": 3,
