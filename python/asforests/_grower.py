@@ -126,22 +126,28 @@ class ForestGrower:
                 # criterion 1: current Cauchy window size (here given by index of where the convergence window starts)
                 self.logger.debug(f"\tForest not converged in criterion  {i}. Computing differences from forest size {cur_window_start * self.step_size} on.")
                 start = time.time()
-                adjustment = None
+                adjust_min = False
+                adjust_max = False
                 for score in history[-self.step_size:]:
                     if s_min > score:
                         s_min = self.s_mins[i] = score
-                        adjustment = "min"
+                        adjust_min = True
                     if score > s_max:
                         s_max = self.s_maxs[i] = score
-                        adjustment = "max"
+                        adjust_max = True
                 
                 # if the window must be adjusted
                 if s_max > s_min + self.epsilon:
-                    if adjustment == "min":
-                        cur_window_start = np.where(history[cur_window_start:] > (s_min + self.epsilon))[0][-1] + 1 + cur_window_start
+                    if adjust_min:
+                        violations = history[cur_window_start:] > (s_min + self.epsilon)
+                        if np.count_nonzero(violations) > 0:
+                            cur_window_start = np.where(violations)[0][-1] + 1 + cur_window_start
                         s_max = self.s_maxs[i] = np.max(history[cur_window_start:]) if cur_window_start < len(history) else -np.inf
-                    elif adjustment == "max":
-                        cur_window_start = np.where(history[cur_window_start:] < (s_max - self.epsilon))[0][-1] + 1 + cur_window_start
+                        
+                    elif adjust_max:
+                        violations = history[cur_window_start:] < (s_max - self.epsilon)
+                        if np.count_nonzero(violations) > 0:
+                            cur_window_start = np.where(violations)[0][-1] + 1 + cur_window_start
                         s_min = self.s_mins[i] = np.min(history[cur_window_start:]) if cur_window_start < len(history) else np.inf
                     else:
                         raise Exception("There must be an adjustment!")
