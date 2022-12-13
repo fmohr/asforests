@@ -162,9 +162,7 @@ class ForestGrower:
                 window = history[cur_window_start:]
                 self.logger.debug(f"\tCauchy holds. Checking slope in window of length {len(window)} with entries since iteration {cur_window_start}.")
                 if len(window) <= 1:
-                    self.logger.info("RUNNING BEFORE EXCEPTION")
                     raise ValueError(f"Detected Cauchy criterion in a window of length {len(window)}, but such a window must have length at least 2.")
-                    self.logger.info("RUNNING AFTER EXCEPTION")
                     raise Exception()
 
                 slope = self.estimate_slope(window)

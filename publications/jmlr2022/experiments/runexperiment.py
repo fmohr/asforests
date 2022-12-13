@@ -35,7 +35,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     
     # treat data sparse?
     binarize_sparse = openmlid in [1111, 41147, 41150, 42732, 42733]
-    drop = None if openmlid in [315] else 'first'
+    drop = None if openmlid in [231, 315, 41021,  42563, 42570, 42571, 42688, 42727, 42729] else 'first'
     
     # Write intermediate results to database
     if is_classification:
@@ -54,13 +54,13 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 if __name__ == '__main__':
     job_name = sys.argv[1]
     job_type = sys.argv[2]
-    if False:
+    if True:
         experimenter = PyExperimenter(experiment_configuration_file_path=f"config/experiments-fullforests-{job_type}.cfg", name = job_name)
         experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
-            'openmlid': 3,
-            'seed': 4,
+            'openmlid':  42688,
+            'seed': 0,
             'max_diff': 0.00001,
             'iterations_with_max_difff': 1000
         }, None, None)
