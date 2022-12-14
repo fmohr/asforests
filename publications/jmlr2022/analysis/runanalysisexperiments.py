@@ -28,12 +28,11 @@ eval_logger.setLevel(logging.DEBUG)
 eval_logger.addHandler(ch)
 
 
-def get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, extrapolation_multiplier, delta, bootstrap_repeats, target_type):
+def get_gap_to_final_score(scores, openmlid, seed, w_min, epsilon, extrapolation_multiplier, delta, bootstrap_repeats):
 
     # create info supplier
-    input_scores = [e[3 if target_type == "oob" else 4] for e in input_history]
-    info_supplier = get_dummy_info_supplier(input_scores)
-    final_score = input_scores[-1]
+    info_supplier = get_dummy_info_supplier(scores)
+    final_score = scores[-1]
 
     # now run algorithm
     start = time.time()
@@ -48,18 +47,19 @@ def get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, extrap
     runtime = np.round((end - start) * 1000)
     return len(output_history), output_history[-1] - final_score, runtime
 
+
 def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_config):
     
     # Extracting given parameters
     openmlid = keyfields['openmlid']
     seed = keyfields['seed']
     target_type = keyfields['target_type']
+    problem_type = sys.argv[2]
 
     # load results
     logger.debug("Reading in data.")
-    df_results = pd.read_csv("results.csv", sep=";")
-    row = df_results[(df_results["openmlid"] == openmlid) & (df_results["seed"] == seed)]["scores"].values[0].replace("b'", "").replace("'", "")
-    input_history = json.loads(row)
+    df_results = pd.read_csv(f"results_{problem_type}_base.csv", sep=";")
+    scores = json.loads(df_results[(df_results["openmlid"] == openmlid) & (df_results["seed"] == seed)][f"scores_{target_type}"].values[0])
 
     # prepare experiment
     epsilons = [10**exp for exp in range(-3, 0)]
@@ -87,29 +87,31 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
                     for bootstrap_repeats in bootstrap_repeats_options:
                         if delta >= min_delta and delta <= w_min:
                             print(f"{datetime.now()}: eps = {epsilon}, w_min = {w_min}, delta = {delta}, c = {c}, bt_repeats = {bootstrap_repeats}.")
-                            m,g,t = get_gap_to_final_score(input_history, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats, target_type)
+                            m,g,t = get_gap_to_final_score(scores, openmlid, seed, w_min, epsilon, c, delta, bootstrap_repeats)
                             rows.append([epsilon, w_min, delta, c, bootstrap_repeats, m, np.round(g, 4), t])
                         pbar.update(1)
     pbar.close()
     out = json.dumps(rows)
 
-    # Write intermediate results to database    
-    resultfields = {
-        "analysis": out
-    }
-    result_processor.process_results(resultfields)
-
-    #logger.info("Finished")
+    # Write intermediate results to database
+    if result_processor is not None:
+        resultfields = {
+            "analysis": out
+        }
+        result_processor.process_results(resultfields)
+    else:
+        return out
 
 
 if __name__ == '__main__':
     job_name = sys.argv[1]
+    problem_type = sys.argv[2]
     if True:
-        experimenter = PyExperimenter(experiment_configuration_file_path="config/experiments-analysis-classification.cfg", name = job_name)
+        experimenter = PyExperimenter(experiment_configuration_file_path=f"config/experiments-analysis-{problem_type}.cfg", name = job_name)
         experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
-            "openmlid": 3,
+            "openmlid": 8,
             "seed": 4,
             "target_type": "val"
         }, None, None)
