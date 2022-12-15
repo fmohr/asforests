@@ -103,7 +103,7 @@ class ForestGrower:
         new_scores = []
         for i in range(self.step_size):
             start = time.time()
-            new_scores.append(next(self.info_supplier))
+            new_scores.append(next(self.info_supplier)[0]) # only retrieve the first field from the supplier (rest is meta-data)
             self.time_stats_supplier.append(time.time() - start)
         self.logger.debug(f"\tDone. Forest size is now {self.t * self.step_size}. Scores to be added: {new_scores}")
 

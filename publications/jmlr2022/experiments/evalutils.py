@@ -81,8 +81,12 @@ def build_full_classification_forest(openmlid, seed, max_diff, iterations_with_m
     X, y = get_dataset(openmlid)
     print("Splitting the data")
     X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, random_state = seed)
-    
-    print("split created, now building forest")
+    train_labels = set(np.unique(y_train))
+    test_labels = set(np.unique(y_test))
+    train_labels_not_in_test = [l for l in train_labels if not l in test_labels]
+    test_labels_not_in_train = [l for l in test_labels if not l in train_labels]
+                               
+    print(f"split created. {len(train_labels_not_in_test)} labels occur in train data but not in the test data, and {len(test_labels_not_in_train)} labels occur in the test data but not in the training data.\nNow building forest.")
     
     # check whether we must pre-process
     preprocessing = get_mandatory_preprocessing(X_train, y_train, binarize_sparse, drop)
@@ -93,7 +97,7 @@ def build_full_classification_forest(openmlid, seed, max_diff, iterations_with_m
         X_test = pl.transform(X_test)
     
     # prepare everything to efficiently compute the brier score
-    labels = list(np.unique(y_test))
+    labels = list(np.unique(y))
     n, k = len(y_test), len(labels)
     Y = np.zeros((n, k))
     for i, true_label in enumerate(y_test):
@@ -113,29 +117,38 @@ def build_full_classification_forest(openmlid, seed, max_diff, iterations_with_m
     
     t = 1
     while True:
-        t_0 = time.time()
-        next_score_train = np.round(next(gen), 4)
-        t_1 = time.time()
+        next_score_train, train_time, pred_time, score_time = next(gen)
         
         # update posterior distribution on test set
-        y_prob_oob_tree = rf.predict_tree_proba(-1, X_test)
+        start = time.time()
+        y_prob_oob_tree, classes_ = rf.predict_tree_proba(-1, X_test)
+        
+        # if there are test labels not known to the forest, rearrange predictions
+        if len(rf.classes_) != len(labels) or any(rf.classes_ != labels):
+            missing_labels = [l for l in labels if not l in rf.classes_]
+            missing_predictions = np.zeros((y_prob_oob_tree.shape[0], len(missing_labels)))
+            indices_augmented = (list(rf.classes_) + missing_labels)
+            indices = [indices_augmented.index(l) for l in labels]
+            y_prob_oob_tree = np.column_stack([y_prob_oob_tree, missing_predictions])[:,indices]
 
         # update forest's prediction
         Y_test_hat = (y_prob_oob_tree + t * Y_test_hat) / (t + 1) 
+        pred_time_val = time.time() - start
         
-        next_score_test = np.round(get_brier_score(Y_test_hat), 4)
-        t_2 = time.time()
+        start = time.time()
+        next_score_test = get_brier_score(Y_test_hat)
+        score_time_val = time.time() - start
+        
         memory_now = psutil.Process().memory_info().rss / (1024 * 1024) - memory_init
-        t_3 = time.time()
-        history.append((int(np.round(1000 * (t_0 - start))), int(np.round(1000 * (t_1 - t_0))), int(np.round(1000 * (t_2 - t_1))), next_score_train, next_score_test, np.round(memory_now, 1)))
+        history.append((int(np.round(10**6 * train_time)), int(np.round(10**6 * pred_time)), int(np.round(10**6 * score_time)), int(np.round(10**6 * pred_time_val)), int(np.round(10**6 * score_time_val)), np.round(next_score_train, 4), np.round(next_score_test, 4), np.round(memory_now, 1)))
         
         diff = np.nan
         if len(history) > iterations_with_max_diff:
             window = np.array(history[-iterations_with_max_diff:])
-            diff = np.round(max(window[:,3]) - min(window[:,3]), 5)
+            diff = np.round(max(window[:,5]) - min(window[:,5]), 5)
             if diff <= max_diff:
                 break
-        eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][3], 4)}. Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
+        eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][5], 5)} (OOB) {np.round(history[-1][6], 5)} (VAL). Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
         
         t += 1
     return history
@@ -164,7 +177,6 @@ def build_full_regression_forest(openmlid, seed, max_diff, iterations_with_max_d
     y_test_scaled = scale(y_test)
     def get_mse_score(y_hat):
         return np.mean((scale(y_hat) - y_test_scaled)**2)
-        #return np.mean((y_hat - y_test)**2)
     
     rf = asforests.RandomForestRegressor(step_size = 1, prediction_map_for_scoring = scale)
     gen = rf.get_score_generator(X_train, y_train)
@@ -178,27 +190,25 @@ def build_full_regression_forest(openmlid, seed, max_diff, iterations_with_max_d
     
     t = 1
     while True:
-        t_0 = time.time()
-        next_score_train = np.round(next(gen), 6)
-        t_1 = time.time()
+        next_score_train, train_time, pred_time, score_time = next(gen)
         
-        # update posterior distribution on test set
+        # update posterior distribution on validation set and compute score
+        start = time.time()
         y_prob_oob_tree = rf.predict_tree(-1, X_test)
-
-        # update forest's prediction
-        y_hat = (y_prob_oob_tree + t * y_hat) / (t + 1) 
+        y_hat = (y_prob_oob_tree + t * y_hat) / (t + 1)
+        pred_time_val = time.time() - start
+        start = time.time()
+        next_score_test = get_mse_score(y_hat)
+        score_time_val = time.time() - start
         
-        next_score_test = np.round(get_mse_score(y_hat), 6)
-        t_2 = time.time()
         memory_now = psutil.Process().memory_info().rss / (1024 * 1024) - memory_init
-        t_3 = time.time()
-        history.append((int(np.round(10**6 * (t_0 - start))), int(np.round(10**6 * (t_1 - t_0))), int(np.round(10**6 * (t_2 - t_1))), next_score_train, next_score_test, np.round(memory_now, 1)))
+        history.append((int(np.round(10**6 * train_time)), int(np.round(10**6 * pred_time)), int(np.round(10**6 * score_time)), int(np.round(10**6 * pred_time_val)), int(np.round(10**6 * score_time_val)), np.round(next_score_train, 6), np.round(next_score_test, 6), np.round(memory_now, 1)))
         
         diff = np.nan
         if len(history) > iterations_with_max_diff:
             window = np.array(history[-iterations_with_max_diff:])
-            diff = np.round(max(window[:,3]) - min(window[:,3]), 6)
-        eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][3], 6)} (train) {np.round(history[-1][4], 6)} (test). Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
+            diff = np.round(max(window[:,5]) - min(window[:,5]), 6)
+        eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][5], 6)} (OOB) {np.round(history[-1][6], 6)} (VAL). Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
         
         if not np.isnan(diff) and diff <= max_diff:
             break

@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from scipy.stats import bootstrap
 import sklearn.ensemble
@@ -47,20 +48,28 @@ class RandomForestRegressor(sklearn.ensemble.RandomForestRegressor):
     def predict_tree(self, tree_id, X):
         return self.estimators_[tree_id].predict(X)
         
-    def get_score_generator(self, X, y):
+    def get_score_generator(self, X, y, validation_size = 0.0, random_state = None):
+        
+        # check whether performance is checked based on OOB or a separate validation fold
+        oob = validation_size == 0
+        if not oob:
+            X_train, X_val, y_train, y_val = sklearn.model_selection.train_test_split(X, y, test_size = validation_size, random_state = random_state)
+        else:
+            X_train, X_val, y_train, y_val = X, X, y, y
         
         # stuff to efficiently compute OOB
-        n_samples = y.shape[0]
-        n_samples_bootstrap = sklearn.ensemble._forest._get_n_samples_bootstrap(
-            n_samples,
-            self.max_samples,
-        )
-        def get_unsampled_indices(tree):
-            return sklearn.ensemble._forest._generate_unsampled_indices(
-                tree.random_state,
+        if oob:
+            n_samples = y.shape[0]
+            n_samples_bootstrap = sklearn.ensemble._forest._get_n_samples_bootstrap(
                 n_samples,
-                n_samples_bootstrap,
+                self.max_samples,
             )
+            def get_unsampled_indices(tree):
+                return sklearn.ensemble._forest._generate_unsampled_indices(
+                    tree.random_state,
+                    n_samples,
+                    n_samples_bootstrap,
+                )
         
         # create a function that can efficiently compute the MSE
         y_ref = y if self.prediction_map_for_scoring is None else self.prediction_map_for_scoring(y)
@@ -70,32 +79,39 @@ class RandomForestRegressor(sklearn.ensemble.RandomForestRegressor):
             return np.mean((y_pred - y_ref)**2)
         
         # this is a variable that is being used by the supplier
-        self.y_oob = np.zeros(X.shape[0])
+        self.y_pred = np.zeros(X.shape[0])
+        self.all_indices = list(range(len(y)))
         
         def f():
             
             while True: # the generator will add trees forever
                 
                 # add a new tree
+                start = time.time()
                 self.n_estimators += self.step_size
                 super(RandomForestRegressor, self).fit(X, y)
+                traintime = time.time() - start
 
                 # update distribution based on last trees
                 for t in range(self.n_estimators - self.step_size, self.n_estimators):
+                    
+                    start = time.time()
 
                     # get i-th last tree
                     last_tree = self.estimators_[t]
 
-                    # get indices not used for training
-                    unsampled_indices = get_unsampled_indices(last_tree)
-
-                    # update Y_prob with respect to OOB probs of the tree
-                    y_oob_tree = self.predict_tree(t, X[unsampled_indices])
+                    # get prediction of tree on the indices relevant for it
+                    relevant_indices = get_unsampled_indices(last_tree) if oob else self.all_indices # this is what J is in the paper
+                    y_pred_tree = self.predict_tree(t, X[relevant_indices])
 
                     # update forest's prediction
-                    self.y_oob[unsampled_indices] = (y_oob_tree + t * self.y_oob[unsampled_indices]) / (t + 1) # this will converge according to the law of large numbers
+                    self.y_pred[relevant_indices] = (y_pred_tree + t * self.y_pred[relevant_indices]) / (t + 1) # this will converge according to the law of large numbers
 
-                    yield get_mse_score(self.y_oob)
+                    pred_time = time.time() - start
+                    start = time.time()
+                    score = get_mse_score(self.y_pred)
+                    score_time = time.time() - start
+                    yield score, traintime / self.step_size, pred_time, score_time
         
         return f() # creates the generator and returns it
                
