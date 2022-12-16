@@ -103,7 +103,10 @@ class ForestGrower:
         new_scores = []
         for i in range(self.step_size):
             start = time.time()
-            new_scores.append(next(self.info_supplier)[0]) # only retrieve the first field from the supplier (rest is meta-data)
+            next_observation = next(self.info_supplier)
+            if type(next_observation) == tuple or type(next_observation) == list:
+                next_observation = next_observation[0] # only retrieve the first field from the supplier (rest is meta-data)
+            new_scores.append(next_observation)
             self.time_stats_supplier.append(time.time() - start)
         self.logger.debug(f"\tDone. Forest size is now {self.t * self.step_size}. Scores to be added: {new_scores}")
 

@@ -150,6 +150,10 @@ def build_full_classification_forest(openmlid, seed, max_diff, iterations_with_m
                 break
         eval_logger.info(f"{len(history)}. Current score: {np.round(history[-1][5], 5)} (OOB) {np.round(history[-1][6], 5)} (VAL). Max diff in window: {diff}. Memory; {np.round(memory_now, 1)}MB")
         
+        if memory_now > 900 * 1024:
+            eval_logger.info("Approaching memory limit. Stopping!")
+            break
+        
         t += 1
     return history
 
