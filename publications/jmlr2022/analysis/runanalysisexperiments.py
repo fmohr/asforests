@@ -44,7 +44,7 @@ def get_gap_to_final_score(scores, openmlid, seed, w_min, epsilon, extrapolation
         pass
     end = time.time()
     output_history = grower.histories[0]
-    runtime = np.round((end - start) * 1000)
+    runtime = np.round((end - start) * 10**6 / len(output_history))
     return len(output_history), output_history[-1] - final_score, runtime
 
 
@@ -63,10 +63,10 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 
     # prepare experiment
     epsilons = [10**exp for exp in range(-3, 0)]
-    w_mins = [i for i in list(range(2, 10)) + list(range(10, 100, 10)) + list(range(100, 1001, 100))]
+    w_mins = [i for i in list(range(2, 10)) + list(range(10, 100, 10)) + list(range(100, 1001, 100)) + list(range(1000, 10001, 1000))]
     w_mins.reverse()
     deltas = w_mins
-    extrapolation_multipliers = [10**exp for exp in range(6)]
+    extrapolation_multipliers = [10**exp for exp in range(7)]
     extrapolation_multipliers.reverse()
     bootstrap_repeats_options = [0, 2, 5, 10, 20]
     bootstrap_repeats_options.reverse()
