@@ -106,12 +106,12 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 if __name__ == '__main__':
     job_name = sys.argv[1]
     problem_type = sys.argv[2]
-    if True:
+    if False:
         experimenter = PyExperimenter(experiment_configuration_file_path=f"config/experiments-analysis-{problem_type}.cfg", name = job_name)
         experimenter.execute(run_experiment, max_experiments=-1, random_order=True)
     else:
         run_experiment({
-            "openmlid": 8,
-            "seed": 4,
-            "target_type": "val"
+            "openmlid": 16,
+            "seed": 0,
+            "target_type": "oob"
         }, None, None)

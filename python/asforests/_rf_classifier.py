@@ -8,56 +8,21 @@ from ._grower import ForestGrower
 
 class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
     
-    def __init__(self, step_size = 5, w_min = 50, delta = 10, epsilon = 0.01, extrapolation_multiplier = 1000, bootstrap_repeats = 5, max_trees = None, stop_when_horizontal = True, criterion='gini', max_depth=None, min_samples_split=2, min_samples_leaf=1, min_weight_fraction_leaf=0.0, max_features='sqrt', max_leaf_nodes=None, min_impurity_decrease=0.0, bootstrap=True, n_jobs=None, random_state=None, verbose=0, class_weight=None, ccp_alpha=0.0, max_samples=None):
-        self.kwargs = {
-            "n_estimators": 0, # will be increased steadily
-            "criterion": criterion,
-            "max_depth": max_depth,
-            "min_samples_split": min_samples_split,
-            "min_samples_leaf": min_samples_leaf,
-            "min_weight_fraction_leaf": min_weight_fraction_leaf,
-            "max_features": max_features,
-            "max_leaf_nodes": max_leaf_nodes,
-            "min_impurity_decrease": min_impurity_decrease,
-            "bootstrap": bootstrap,
-            "oob_score": False,
-            "n_jobs": n_jobs,
-            "random_state": random_state,
-            "verbose": verbose,
-            "class_weight": class_weight,
-            "ccp_alpha": ccp_alpha,
-            "max_samples": max_samples,
-            "warm_start": True
-        }
-        super().__init__(**self.kwargs)
+    def __init__(self, step_size = 5, epsilon = 0.01, min_trees = 10, max_trees = None, **kwargs):
+        if "n_estimators" in kwargs:
+            raise ValueError(
+                "This is an automatically stopping RF, which does not accept the n_estimators parameter."
+                "Please use max_trees instead if you want to limit the number."
+            )
+        super().__init__(**kwargs)
         
-        if n_jobs is not None and n_jobs > step_size:
+        if "n_jobs" in kwargs and kwargs["n_jobs"] > step_size:
             raise ValueError(f"The number of jobs cannot be bigger than step_size.")
         
-        if random_state is None:
-            random_state = 0
-        if type(random_state) == np.random.RandomState:
-            self.random_state = random_state
-        else:
-            self.random_state = np.random.RandomState(random_state)
-   
         self.step_size = step_size
-        self.w_min = w_min
         self.epsilon = epsilon
-        self.extrapolation_multiplier = extrapolation_multiplier
+        self.min_trees = min_trees
         self.max_trees = max_trees
-        self.bootstrap_repeats = bootstrap_repeats
-        self.stop_when_horizontal = stop_when_horizontal
-        self.args = {
-            "step_size": step_size,
-            "w_min": w_min,
-            "delta": delta,
-            "epsilon": epsilon,
-            "extrapolation_multiplier": extrapolation_multiplier,
-            "bootstrap_repeats": bootstrap_repeats,
-            "max_trees": max_trees,
-            "stop_when_horizontal": stop_when_horizontal
-        }
         self.logger = logging.getLogger("ASRFClassifier")
         
     def __str__(self):
@@ -99,15 +64,14 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                     n_samples,
                     n_samples_bootstrap,
                 )
-        
-        # create a function that can efficiently compute the Brier score for a probability distribution
-        def get_brier_score(Y_prob):
-            return np.mean(np.sum((Y_prob - Y)**2, axis=1))
-        
+
         # this is a variable that is being used by the supplier
         self.y_prob_pred = np.zeros(Y.shape)
         self.all_indices = list(range(Y.shape[0]))
         
+        empty_distribution = np.empty((len(y), len(labels)))
+        empty_distribution[:] = np.nan
+
         def f():
             
             while True: # the generator will add trees forever
@@ -117,31 +81,28 @@ class RandomForestClassifier(sklearn.ensemble.RandomForestClassifier):
                 self.n_estimators += self.step_size
                 super(RandomForestClassifier, self).fit(X_train, y_train)
                 traintime = time.time() - start
+                traintime_per_added_tree = traintime / self.step_size * self.n_jobs
 
                 # update distribution based on last trees
                 for t in range(self.n_estimators - self.step_size, self.n_estimators):
 
+                    # get prediction of tree on the indices relevant for it (the others are left to nan)
                     start = time.time()
-                    
-                    # get t-th last tree
                     last_tree = self.estimators_[t]
-
-                    # get prediction of tree on the indices relevant for it
-                    relevant_indices = get_unsampled_indices(last_tree) if oob else self.all_indices # this is what J is in the paper
-                    y_prob_tree, classes_ = self.predict_tree_proba(t, X_val[relevant_indices])
-                    
-                    # update forest's prediction
-                    self.y_prob_pred[relevant_indices] = (y_prob_tree + t * self.y_prob_pred[relevant_indices]) / (t + 1) # this will converge according to the law of large numbers
-
+                    y_prob_tree = empty_distribution.copy()
+                    indices_val = get_unsampled_indices(last_tree) if oob else self.indices_val
+                    y_prob_tree_on_indices, classes_ = self.predict_tree_proba(t, X[indices_val])
+                    y_prob_tree[indices_val] = y_prob_tree_on_indices
                     pred_time = time.time() - start
+
+                    # update forest's prediction
                     start = time.time()
-                    score = get_brier_score(self.y_prob_pred)
-                    score_time = time.time() - start
-                    
-                    yield score, traintime / self.step_size, pred_time, score_time
+                    self.y_prob_pred[indices_val] = (y_prob_tree_on_indices + t * self.y_prob_pred[indices_val]) / (t + 1) # this will converge according to the law of large numbers
+                    update_time = time.time() - start
+
+                    yield y_prob_tree, traintime_per_added_tree, pred_time, update_time
         
         return f() # creates the generator and returns it
-        
     
     def reset(self):
         # set numbers of trees to 0
