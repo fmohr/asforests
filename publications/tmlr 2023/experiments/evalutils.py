@@ -160,14 +160,14 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
             times_train.append(train_time)
             times_predict_train.append(pred_time)
             times_update.append(update_time)
-            prob_history_oob.append(y_prob_tree)
+            prob_history_oob.append(y_prob_tree.round(4).astype(np.float16))
             #print(int(1000 * train_time), int(1000 * pred_time), int(1000 * update_time))
 
 
             # update posterior distribution on test set
             start = time.time()
             y_prob_test, classes_ = rf.predict_tree_proba(inner_tree_id, X_test)
-            prob_history_val.append(y_prob_test)
+            prob_history_val.append(y_prob_test.round(4).astype(np.float16))
 
             # if there are test labels not known to the forest, rearrange predictions
             if len(rf.classes_) != len(labels) or any(rf.classes_ != labels):
@@ -185,14 +185,14 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
             times_predict_val.append(pred_time_val)
 
             memory_now = psutil.Process().memory_info().rss / (1024 * 1024) - memory_init
-            history.append((
+            '''history.append((
                 int(np.round(10**6 * train_time)),
                 int(np.round(10**6 * pred_time)),
                 int(np.round(10**6 * pred_time_val)),
                 np.round(y_prob_tree, 4),
                 np.round(y_prob_test, 4),
                 np.round(memory_now, 1)
-            ))
+            ))'''
 
             brier_score_oob_tree = get_brier_score(Y_train, y_prob_tree)
             brier_score_val_tree = get_brier_score(Y_test, y_prob_test)
@@ -203,18 +203,12 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
             tree_score_history_val.append(brier_score_val_tree)
             t += 1
             
-            
-            
             eval_logger.info(
                 f"{t}. "
                 f"Current score: {np.round(brier_score_oob, 5)} (OOB) {np.round(brier_score_val, 5)} (VAL). "
                 f"Estimated required trees: {required_trees}. "
                 f"Memory; {np.round(memory_now, 1)}MB."
             )
-
-            if memory_now > 900 * 1024:
-                eval_logger.info("Approaching memory limit. Stopping!")
-                break
         
         required_trees = get_required_num_trees(prob_history_val, tree_score_history_val, eps=eps, certainty_factor=zfactor)
         eval_logger.info(f"New estimate for required number of trees: {required_trees}. Currently have info for {t}.")
@@ -224,6 +218,8 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
 
     #oob_history = [e.tolist() for e in prob_history_oob]
     #val_history = [e.tolist() for e in prob_history_oob]
+
+    print(prob_history_oob)
 
     oob_history_as_string = str([e.tolist() for e in prob_history_oob])
     val_history_as_string = str([e.tolist() for e in prob_history_val])
