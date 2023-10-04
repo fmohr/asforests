@@ -1,0 +1,6 @@
+config
+/.codecarbon.config
+logs
+plots
+/result.log
+/experiments.db
