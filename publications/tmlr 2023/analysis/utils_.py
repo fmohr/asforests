@@ -28,8 +28,6 @@ class Analyzer:
                  ):
         self.openmlid = openmlid
         self.seed = seed
-        self.prob_history_oob = prob_history_oob
-        self.prob_history_val = prob_history_val
         self.Y_train = Y_train
         self.Y_val = Y_val
         self.num_trees = prob_history_oob.shape[0]
@@ -45,10 +43,9 @@ class Analyzer:
         self.single_tree_scores_mean_ests = {}
         self.single_tree_scores_std_ests = {}
         self.scores_of_forests = {}
-        self.prob_history_forests = {}  # contains for each forest size the probability distribution
         self.correction_terms_for_t1_per_time = {}
         self.num_trees_used_on_avg_for_oob_estimates_at_forest_size = []
-        for key, probs_orig, Y in zip(["oob", "val"], [self.prob_history_oob, self.prob_history_val],
+        for key, probs_orig, Y in zip(["oob", "val"], [prob_history_oob, prob_history_val],
                                       [self.Y_train, self.Y_val]):
 
             # compute distribution per forest size
@@ -104,7 +101,6 @@ class Analyzer:
                 single_tree_scores_std_ests.append(np.nanstd(single_tree_scores))
 
             # compute probabilities and scores
-            self.prob_history_forests[key] = probs_forests
             self.scores_of_single_trees[key] = tuple(single_tree_scores)
             self.single_tree_scores_mean_ests[key] = single_tree_scores_mean_ests
             self.single_tree_scores_std_ests[key] = single_tree_scores_std_ests
@@ -186,7 +182,7 @@ class Analyzer:
         }
 
     def get_num_trees_used_on_avg_for_oob_estimates_at_forest_size(self, forest_size):
-        return int((~np.isnan(self.prob_history_oob))[:forest_size, :, 0].sum(axis=0).mean())
+        return self.num_trees_used_on_avg_for_oob_estimates_at_forest_size[forest_size]
 
     def get_num_trees_required_for_stable_correction_term_estimate(self, max_iterations_without_new_max=5,
                                                                    do_discount=True, oob=True):
@@ -248,6 +244,8 @@ class Analyzer:
                 return t
 
     def create_ci_plot(self, alpha, eps, ci_offset, oob=True, ax=None):
+        raise NotImplementedError
+
         first_key = "oob" if oob else "val"
         second_key = alpha
         cis = self.ci_histories[first_key][second_key]["orig"]
