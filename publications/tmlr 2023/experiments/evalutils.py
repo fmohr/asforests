@@ -221,20 +221,25 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
         if t >= required_trees:
             break
         step_size = np.min([10**4, required_trees - t])
-    
-    oob_history_as_string = str([e.tolist() for e in prob_history_oob])
-    val_history_as_string = str([e.tolist() for e in prob_history_val])
 
-    oob_history_compressed = str(zlib.compress(oob_history_as_string.encode()))
-    val_history_compressed = str(zlib.compress(val_history_as_string.encode()))
+    oob_history = [e.tolist() for e in prob_history_oob]
+    val_history = [e.tolist() for e in prob_history_oob]
 
-    eval_logger.info(f"History compressed, now returning.")
+    #oob_history_as_string = str([e.tolist() for e in prob_history_oob])
+    #val_history_as_string = str([e.tolist() for e in prob_history_val])
+
+    #oob_history_compressed = str(zlib.compress(oob_history_as_string.encode()))
+    #val_history_compressed = str(zlib.compress(val_history_as_string.encode()))
+
+    #eval_logger.info(f"History compressed, now returning.")
+
+    eval_logger.info(f"History ready. Now returning.")
     return [
         X.tolist(),
         Y_train.tolist(),
         Y_test.tolist(),
-        oob_history_compressed,
-        val_history_compressed,
+        oob_history,
+        val_history,
         times_train,
         times_predict_train,
         times_predict_val,
