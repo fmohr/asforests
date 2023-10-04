@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import zlib
+import multiprocessing.pool
 
 
 class Analyzer:
@@ -551,14 +552,26 @@ def get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=[0.1, 0.2,
 
 
 def get_results(
-    openmlids,
-    analyzer_fetcher,
-    eps = 0.01,
-    alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99],
-    show_progress=False
+        openmlids,
+        analyzer_fetcher,
+        eps=0.01,
+        alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99],
+        n_jobs=8,
+        show_progress=False
 ):
-    results = []
-    for openmlid in (tqdm(openmlids) if show_progress else openmlids):
-        analyzer = analyzer_fetcher(openmlid, seed=0)
-        results.append(get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=alphas))
+    if show_progress:
+        pbar = tqdm(total=len(openmlids))
+
+    with multiprocessing.pool.ThreadPool(n_jobs) as pool:
+
+        def f(openmlid):
+            analyzer = analyzer_fetcher(openmlid, seed=0)
+            result = get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=alphas)
+            if show_progress:
+                pbar.update(1)
+            return result
+
+        results = pool.map(f, openmlids)
+        if show_progress:
+            pbar.close()
     return pd.DataFrame(results)
