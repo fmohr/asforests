@@ -1,2 +1,4 @@
+analysis/.codecarbon.config
+analysis/logs
 analysis/plots
-experiments/analyzers
+analysis/analyzers

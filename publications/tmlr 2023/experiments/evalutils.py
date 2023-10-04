@@ -49,7 +49,7 @@ def get_dataset(openmlid):
     print(f"Data read. Shape is {X.shape}.")
     return X, y
 
-def get_mandatory_preprocessing(X, y, binarize_sparse = False, drop = 'first'):
+def get_mandatory_preprocessing(X, y):
     
     # determine fixed pre-processing steps for imputation and binarization
     types = [set([type(v) for v in r]) for r in X.T]
@@ -57,12 +57,12 @@ def get_mandatory_preprocessing(X, y, binarize_sparse = False, drop = 'first'):
     numeric_transformer = Pipeline([("imputer", sklearn.impute.SimpleImputer(strategy="median"))])
     categorical_features = [i for i in range(X.shape[1]) if i not in numeric_features]
     missing_values_per_feature = np.sum(pd.isnull(X), axis=0)
-    eval_logger.info(f"There are {len(categorical_features)} categorical features, which will be binarized.")
+    eval_logger.info(f"There are {len(categorical_features)} categorical features, which will be turned into integers.")
     eval_logger.info(f"Missing values for the different attributes are {missing_values_per_feature}.")
     if len(categorical_features) > 0 or sum(missing_values_per_feature) > 0:
         categorical_transformer = Pipeline([
             ("imputer", sklearn.impute.SimpleImputer(strategy="most_frequent")),
-            ("binarizer", sklearn.preprocessing.OneHotEncoder(drop=drop, sparse = binarize_sparse, handle_unknown = 'error' if drop == 'first' else 'ignore')),
+            ("binarizer", sklearn.preprocessing.OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)),
         ])
         return [("impute_and_binarize", ColumnTransformer(
             transformers=[
@@ -90,7 +90,7 @@ def get_required_num_trees(prob_history, tree_score_history, eps, certainty_fact
             return t
         t += 1
 
-def build_full_classification_forest(openmlid, seed, zfactor, eps, binarize_sparse, drop):
+def build_full_classification_forest(openmlid, seed, zfactor, eps):
     
     print("Loading dataset")
     X, y = get_dataset(openmlid)
@@ -104,12 +104,13 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps, binarize_spar
     print(f"split created. {len(train_labels_not_in_test)} labels occur in train data but not in the test data, and {len(test_labels_not_in_train)} labels occur in the test data but not in the training data.\nNow building forest.")
     
     # check whether we must pre-process
-    preprocessing = get_mandatory_preprocessing(X_train, y_train, binarize_sparse, drop)
+    preprocessing = get_mandatory_preprocessing(X_train, y_train)
     if preprocessing:
         pl = sklearn.pipeline.Pipeline(preprocessing)
         print(f"Modifying inputs with {pl}")
         X_train = pl.fit_transform(X_train, y_train)
         X_test = pl.transform(X_test)
+        eval_logger.info(f"Dataset sizes: {X_train.shape} for training and {X_test.shape} for test data.")
     
     # prepare everything to efficiently compute the brier score
     labels = list(np.unique(y))
@@ -223,12 +224,10 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps, binarize_spar
     
     oob_history_as_string = str([e.tolist() for e in prob_history_oob])
     val_history_as_string = str([e.tolist() for e in prob_history_val])
-    #print(val_history_as_string)
 
     oob_history_compressed = str(zlib.compress(oob_history_as_string.encode()))
     val_history_compressed = str(zlib.compress(val_history_as_string.encode()))
-    
-    #print(t, len(history_as_string), len(a), np.round(100 * len(a) / len(history_as_string), 2))
+
     eval_logger.info(f"History compressed, now returning.")
     return [
         X.tolist(),
