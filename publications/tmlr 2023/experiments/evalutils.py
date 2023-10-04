@@ -163,7 +163,6 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
             prob_history_oob.append(y_prob_tree.round(4).astype(np.float16))
             #print(int(1000 * train_time), int(1000 * pred_time), int(1000 * update_time))
 
-
             # update posterior distribution on test set
             start = time.time()
             y_prob_test, classes_ = rf.predict_tree_proba(inner_tree_id, X_test)
@@ -216,14 +215,24 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
             break
         step_size = np.min([10**4, required_trees - t])
 
+    eval_logger.info("Construction ready. Now compressing the history.")
+
     #oob_history = [e.tolist() for e in prob_history_oob]
     #val_history = [e.tolist() for e in prob_history_oob]
 
     oob_history_as_string = str([e.tolist() for e in prob_history_oob])
     val_history_as_string = str([e.tolist() for e in prob_history_val])
 
+    del prob_history_oob
+    del prob_history_val
+    gc.collect()
+
     oob_history_compressed = str(zlib.compress(oob_history_as_string.encode()))
     val_history_compressed = str(zlib.compress(val_history_as_string.encode()))
+
+    del oob_history_as_string
+    del val_history_as_string
+    gc.collect()
 
     eval_logger.info(f"History compressed, now returning.")
 
