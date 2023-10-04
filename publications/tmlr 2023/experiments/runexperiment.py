@@ -29,7 +29,6 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     seed = int(keyfields['seed'])
     zfactor = float(keyfields['zfactor'])
     eps = float(keyfields['eps'])
-    seed = 0
     is_classification = sys.argv[2] == "classification"
     
     logger.info(f"Starting experiment for openmlid {openmlid} and seed {seed}. Treated as {'classification' if is_classification else 'regression'}.")
@@ -43,7 +42,11 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
         resultfields = {
             'scores': json.dumps(build_full_regression_forest(openmlid, seed))
         }
-    result_processor.process_results(resultfields)
+
+    with open(f"results/{openmlid}_{seed}.json", "w") as f:
+        json.dump(resultfields["scores"], f)
+
+    #result_processor.process_results(resultfields)
     
     logger.info("Finished")
     
