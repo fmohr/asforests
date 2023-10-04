@@ -219,8 +219,6 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
     #oob_history = [e.tolist() for e in prob_history_oob]
     #val_history = [e.tolist() for e in prob_history_oob]
 
-    print(prob_history_oob)
-
     oob_history_as_string = str([e.tolist() for e in prob_history_oob])
     val_history_as_string = str([e.tolist() for e in prob_history_val])
 
