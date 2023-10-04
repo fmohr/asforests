@@ -51,7 +51,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 if __name__ == '__main__':
     job_name = sys.argv[1]
     job_type = sys.argv[2]
-    if False:
+    if True:
         experimenter = PyExperimenter(
             experiment_configuration_file_path=f"config/experiments-fullforests-{job_type}.cfg",
             name=job_name,
