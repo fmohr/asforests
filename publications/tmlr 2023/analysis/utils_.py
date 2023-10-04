@@ -456,7 +456,7 @@ class Analyzer:
             plt.show()
 
 
-def get_analyzer_from_row(row):
+def get_analyzer_from_row(row, show_progress_on_init=False):
     openmlid = int(row["openmlid"])
     seed = int(row["seed"])
     results = json.loads(row["scores"])
@@ -477,8 +477,19 @@ def get_analyzer_from_row(row):
     times_predict_val = results[-2]
     times_update = results[-1]
 
-    analyzer = Analyzer(openmlid, seed, prob_history_oob, prob_history_val, Y_train, Y_test, times_fit,
-                        times_predict_train, times_predict_val, times_update)
+    analyzer = Analyzer(
+        openmlid,
+        seed,
+        prob_history_oob,
+        prob_history_val,
+        Y_train,
+        Y_test,
+        times_fit,
+        times_predict_train,
+        times_predict_val,
+        times_update,
+        show_progress_on_init=show_progress_on_init
+    )
     return analyzer
 
 
