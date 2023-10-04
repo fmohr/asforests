@@ -22,7 +22,8 @@ class Analyzer:
                  times_fit,
                  times_predict_train,
                  times_predict_val,
-                 times_update
+                 times_update,
+                 show_progress_on_init=False
                  ):
         self.openmlid = openmlid
         self.seed = seed
@@ -62,7 +63,8 @@ class Analyzer:
             forest_scores = []
             correction_terms = []
 
-            for t, probs_tree in enumerate(tqdm(probs_orig), start=1):
+            iterable = tqdm(probs_orig) if show_progress_on_init else probs_orig
+            for t, probs_tree in enumerate(iterable, start=1):
                 mask = ~np.isnan(probs_tree)[:, 0]
                 mask_insert = mask & np.isnan(probs_forest)[:, 0]
                 mask_update = mask & ~np.isnan(probs_forest)[:, 0]
