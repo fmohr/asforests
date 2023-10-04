@@ -3,10 +3,12 @@ from tqdm import tqdm
 from scipy import stats
 import os
 import pickle
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import json
 import zlib
+
 
 class Analyzer:
 
@@ -112,7 +114,7 @@ class Analyzer:
             "val": {}
         }
 
-    def sample_rf_behavior_from_probs(probs_orig, Y, forest_size=None):
+    def sample_rf_behavior_from_probs(self, probs_orig, Y, forest_size=None):
         if forest_size is None:
             forest_size = probs_orig.shape[0]
         permutation = np.random.choice(range(len(probs_orig)), forest_size, replace=False)
@@ -492,3 +494,69 @@ def get_analyzer_from_disk(openmlid, seed, analysis_folder="."):
 def is_analyzer_serialized(openmlid, seed, analysis_folder="."):
     return os.path.exists(f"{analysis_folder}/analyzers/{openmlid}_{seed}.ana")
 
+
+def get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]):
+
+    offset = 2
+
+    # get statistics for 100 trees
+    times_fit = np.array(analyzer.times_fit)
+    times_overhead = np.array(analyzer.times_predict_train) + np.array(analyzer.times_update)
+    val_curve = analyzer.scores_of_forests["val"]
+    oob_curve = analyzer.scores_of_forests["oob"]
+    val_gap_100 = np.abs(val_curve[100] - np.mean(val_curve[-10:]))
+    time_100 = times_fit[:100].sum()
+
+    # check regrets for different alphas
+    out = {
+        "openmlid": analyzer.openmlid,
+        "val_gap_100": val_gap_100,
+        "ok_100": val_gap_100 <= eps,
+        "time_100": time_100
+    }
+    for alpha in alphas:
+        for oob in [False, True]:
+            analyzer.compute_ci_sequence_for_expected_performance_at_size_t_based_on_normality(
+                alpha=alpha,
+                offset=offset,
+                oob=oob
+            )
+
+        stopping_point = analyzer.get_stopping_point(
+            alpha=alpha,
+            eps=eps,
+            mode="realistic",
+            min_trees=5,
+            oob=True,
+            use_oob_forest_size_estimate_for_correction_term=False
+        )
+        if stopping_point is not None and not np.isnan(stopping_point) and stopping_point < len(val_curve):
+            val_gap = np.abs(val_curve[stopping_point] - np.mean(val_curve[-10:]))
+            oob_gap = np.abs(oob_curve[stopping_point] - np.mean(oob_curve[-10:]))
+            time_we = (times_fit[:stopping_point] + times_overhead[:stopping_point]).sum()
+        else:
+            val_gap = oob_gap = 1
+            time_we = np.nan
+
+        out.update({
+            f"t_{alpha}": stopping_point,
+            f"oob_val_{alpha}": oob_gap,
+            f"gap_val_{alpha}": val_gap,
+            f"ok_{alpha}": val_gap <= eps,
+            f"time_asrf_{alpha}": time_we
+        })
+    return out
+
+
+def get_results(
+    openmlids,
+    analyzer_fetcher,
+    eps = 0.01,
+    alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99],
+    show_progress=False
+):
+    results = []
+    for openmlid in (tqdm(openmlids) if show_progress else openmlids):
+        analyzer = analyzer_fetcher(openmlid, seed=0)
+        results.append(get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=alphas))
+    return pd.DataFrame(results)
