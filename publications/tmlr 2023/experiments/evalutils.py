@@ -209,7 +209,7 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
                 f"Memory; {np.round(memory_now, 1)}MB."
             )
         
-        required_trees = get_required_num_trees(prob_history_val, tree_score_history_val, eps=eps, certainty_factor=zfactor)
+        required_trees = get_required_num_trees(prob_history_oob, tree_score_history_oob, eps=eps, certainty_factor=zfactor)
         eval_logger.info(f"New estimate for required number of trees: {required_trees}. Currently have info for {t}.")
         if t >= required_trees:
             break

@@ -63,8 +63,8 @@ if __name__ == '__main__':
         experimenter.execute(run_experiment, max_experiments=-1)
     else:
         run_experiment({
-            'openmlid':  22,
+            'openmlid':  61,
             'seed': 1,
-            'zfactor': 2,
-            'eps': 0.1
+            'zfactor': 3,
+            'eps': 0.005
         }, None, None)

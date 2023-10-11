@@ -507,7 +507,7 @@ def is_analyzer_serialized(openmlid, seed, analysis_folder="."):
     return os.path.exists(f"{analysis_folder}/analyzers/{openmlid}_{seed}.ana")
 
 
-def get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]):
+def get_results_for_different_alphas_on_dataset(analyzer, eps, pareto_profiles, alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]):
 
     offset = 2
 
@@ -534,11 +534,11 @@ def get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=[0.1, 0.2,
                 oob=oob
             )
 
-        stopping_point = analyzer.get_stopping_point(
-            alpha=alpha,
-            eps=eps,
+        stopping_point = get_stopping_point(
+            analyzer,
+            profiles=[(alpha, eps)],
             mode="realistic",
-            min_trees=5,
+            min_trees=2,
             oob=True,
             use_oob_forest_size_estimate_for_correction_term=False
         )
@@ -557,13 +557,39 @@ def get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=[0.1, 0.2,
             f"ok_{alpha}": val_gap <= eps,
             f"time_asrf_{alpha}": time_we
         })
+
+    # PARETO APPROACH
+    stopping_point = get_stopping_point(
+        analyzer,
+        profiles=pareto_profiles,
+        mode="realistic",
+        min_trees=2,
+        oob=True,
+        use_oob_forest_size_estimate_for_correction_term=False
+    )
+    if stopping_point is not None and not np.isnan(stopping_point) and stopping_point < len(val_curve):
+        val_gap = np.abs(val_curve[stopping_point] - np.mean(val_curve[-10:]))
+        oob_gap = np.abs(oob_curve[stopping_point] - np.mean(oob_curve[-10:]))
+        time_we = (times_fit[:stopping_point] + times_overhead[:stopping_point]).sum()
+    else:
+        val_gap = oob_gap = 1
+        time_we = np.nan
+
+    out.update({
+        f"t_pareto": stopping_point,
+        f"oob_val_pareto": oob_gap,
+        f"gap_val_pareto": val_gap,
+        f"ok_pareto": val_gap <= eps,
+        f"time_asrf_pareto": time_we
+    })
     return out
 
 
 def get_results(
         openmlids,
         analyzer_fetcher,
-        eps=0.01,
+        eps,
+        pareto_profiles,
         alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99],
         n_jobs=8,
         show_progress=False
@@ -575,7 +601,7 @@ def get_results(
 
         def f(openmlid):
             analyzer = analyzer_fetcher(openmlid, seed=0)
-            result = get_results_for_different_alphas_on_dataset(analyzer, eps, alphas=alphas)
+            result = get_results_for_different_alphas_on_dataset(analyzer, eps, pareto_profiles=pareto_profiles, alphas=alphas)
             if show_progress:
                 pbar.update(1)
             return result
@@ -584,3 +610,181 @@ def get_results(
         if show_progress:
             pbar.close()
     return pd.DataFrame(results)
+
+
+def get_num_trees_required_for_stable_correction_term_estimate(analyzer,
+                                                               max_trees=np.inf,
+                                                               max_iterations_without_new_max=5,
+                                                               do_discount=True,
+                                                               oob=True
+                                                               ):
+    new_max_indices = []
+    first_plateau_max_index = -1
+    cur_max = 0
+    cnt_no_new_max = 0
+    key = "oob" if oob else "val"
+    correction_terms = analyzer.correction_terms_for_t1_per_time[key]
+    if max_trees < np.inf:
+        correction_terms = correction_terms[:max_trees]
+    for t, v in enumerate(correction_terms, start=1):
+        if do_discount:
+            v /= t
+        if v < cur_max:
+            cnt_no_new_max += 1
+        else:
+            cur_max = v
+            cnt_no_new_max = 0
+
+        if cnt_no_new_max >= max_iterations_without_new_max:
+            return t
+    return np.nan
+
+
+def get_stopping_point(analyzer, profiles, mode, min_trees=2, num_trees_used_for_forecast=None,
+                       use_conservative_correction_term=False, oob=True,
+                       use_oob_forest_size_estimate_for_correction_term=False):
+    if num_trees_used_for_forecast is not None and min_trees > num_trees_used_for_forecast:
+        raise ValueError(
+            f"num_trees_used_for_forecast is  {num_trees_used_for_forecast} but must not be bigger than min_trees, which is {min_trees}")
+
+    if mode not in ["oracle", "realistic"]:
+        raise ValueError("mode must be 'oracle' or 'realistic'")
+
+    key = "oob" if oob else "val"
+
+    tree_scores = analyzer.scores_of_single_trees[key]
+    correction_terms = analyzer.correction_terms_for_t1_per_time[key]
+
+    if num_trees_used_for_forecast is not None:
+        tree_scores = tree_scores[:num_trees_used_for_forecast]
+        correction_terms = correction_terms[:num_trees_used_for_forecast]
+        std_of_scores = np.std(tree_scores)
+        correction_term = (analyzer.Y_train.shape[1] / 4) if use_conservative_correction_term else correction_terms[
+            num_trees_used_for_forecast - 1]
+
+    if mode == "oracle":
+        std_of_scores = np.std(tree_scores)
+        correction_term = correction_terms[-1]
+
+    for t in range(min_trees, 10 ** 6):
+
+        # define base of operation if no oracle is used
+        if mode != "oracle" and t <= len(tree_scores):
+            if num_trees_used_for_forecast is None:
+                std_of_scores = np.std(tree_scores[:t])
+                correction_term = (analyzer.Y_train.shape[1] / 4) if use_conservative_correction_term else correction_terms[
+                    t - 1]
+
+        # compute pessimistic gap to asymptotic performance (uncertainty + noise)
+        # for VAL curves, one uses t. For OOB curves, one pretends a smaller forest, of the avg number of trees used for predictions
+        trees_to_be_considered_for_ci = np.ceil(t * 0.366) if oob else t  # this is always t, even for OOB
+
+        profiles_ok = len(profiles) * [False]
+        for i, (alpha, eps) in enumerate(profiles):
+            ci = stats.norm.interval(alpha, loc=0, scale=std_of_scores / np.sqrt(trees_to_be_considered_for_ci))
+            gap = ci[1] + correction_term / (
+                trees_to_be_considered_for_ci if use_oob_forest_size_estimate_for_correction_term else t)
+
+            # accept t if the gap is small enough
+            if gap <= eps:
+                num_tree_count_for_stable_correction_term_estimate = get_num_trees_required_for_stable_correction_term_estimate(
+                    analyzer,
+                    max_trees=t,
+                    max_iterations_without_new_max=5,
+                    do_discount=True,
+                    oob=oob
+                )
+                if t >= num_tree_count_for_stable_correction_term_estimate:
+                    profiles_ok[i] = True
+
+        if all(profiles_ok):
+            return t
+
+def create_full_belief_plot(
+        analyzer,
+        alpha,
+        eps,
+        ci_offset,
+        min_trees=5,
+        decision_oob=True,
+        scoring_oob=True,
+        eps_limit_multiplier=3,
+        ax=None
+):
+    second_key = alpha
+
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(16, 5))
+    else:
+        fig = None
+
+    decision_lines = {}
+    x_lim = 400
+    for i, key in enumerate(["oob", "val"]):
+        oob = key == "oob"
+
+        if key not in analyzer.ci_histories or second_key not in [key]:
+            analyzer.compute_ci_sequence_for_expected_performance_at_size_t_based_on_normality(
+                alpha=alpha,
+                offset=ci_offset,
+                oob=oob
+            )
+
+        color = f"C{i}"
+        scores = analyzer.scores_of_forests[key]
+        correction_terms_over_time = analyzer.correction_terms_for_t1_per_time[key]
+        cis = np.array([list(e) for e in analyzer.ci_histories[key][second_key]["orig"]])
+
+        times = np.arange(1, len(scores) + 1)
+
+        # actual performance
+        ax.plot(times, scores, color=color, label="$Z_t^{" + key + "}$")
+
+        # expected performance (approximated)
+        final_belief_of_correction_term_at_t1 = correction_terms_over_time[-1]
+        correction_terms_over_time_based_on_final_belief = final_belief_of_correction_term_at_t1 / (times * (0.366 if oob else 1))
+        expected_limit_performance = sum(cis[-1]) / 2 - final_belief_of_correction_term_at_t1  # take the last estimate (as best estimate), but do NOT divide by t here, because this is inferred via the estimate on t = 1
+        ax.axhline(expected_limit_performance, linestyle="--", color=color, linewidth=1,
+                   label="$\mathbb{E}[Z_\infty]$")
+        ax.plot(times, expected_limit_performance + correction_terms_over_time_based_on_final_belief, color=color,
+                linestyle="dotted", label="$\mathbb{E}[Z_t]$")
+        if key == "val":
+            ax.fill_between(times, expected_limit_performance - eps, expected_limit_performance + eps,
+                            color="green", alpha=0.2)
+
+        # add confidence intervals for what is believed to be the true final performance
+        ax.fill_between(
+            times[ci_offset - 1:],
+            [e[0] - final_belief_of_correction_term_at_t1 for e in cis],
+            [e[1] - final_belief_of_correction_term_at_t1 for e in cis],
+            alpha=0.2
+        )
+
+        # plot decision lines
+        decision_line = analyzer.get_stopping_point(alpha, eps, "realistic" if oob else "oracle", min_trees=min_trees,
+                                                oob=oob)
+        decision_lines[key] = decision_line
+        ax.axvline(decision_line, color=color, linestyle="--", linewidth=1, label="$t^{" + key + "}$")
+        if oob:
+            decision_line = analyzer.get_stopping_point(alpha, eps, "realistic" if oob else "oracle",
+                                                    min_trees=min_trees, oob=oob,
+                                                    use_oob_forest_size_estimate_for_correction_term=True)
+            decision_lines[key + "_conservative"] = decision_line
+            ax.axvline(decision_line, color=color, linestyle="dotted", linewidth=1,
+                       label="$t^{" + key + "}$ OOB pure")
+            x_lim = np.max([x_lim, decision_line * 1.2])
+
+    ax.set_xlim([1, x_lim])
+    ax.set_xscale("log")
+    ax.set_ylim([expected_limit_performance - eps_limit_multiplier * eps,
+                 expected_limit_performance + eps_limit_multiplier * eps])
+
+    ax.legend()
+    ax.set_title(
+        f"Stopping after {decision_lines['oob']} trees (OOB)."
+        f"Perfect decision would be {decision_lines['val']} (VAL orcale)"
+    )
+
+    if fig is not None:
+        plt.show()
