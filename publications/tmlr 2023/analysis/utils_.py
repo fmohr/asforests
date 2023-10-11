@@ -49,11 +49,11 @@ class Analyzer:
                                       [self.Y_train, self.Y_val]):
 
             # compute distribution per forest size
-            counter = np.zeros((probs_orig.shape[1], probs_orig.shape[
-                2]))  # count how many trees voted on each instance (also use classes for convenience)
+            counter = np.zeros((probs_orig.shape[1], probs_orig.shape[2]))  # count how many trees voted on each instance (also use classes for convenience)
             probs_forest = np.zeros(counter.shape)
             probs_forest[:] = np.nan
             prob_vars_forest = np.zeros(counter.shape)
+            prob_vars_forest[:] = np.nan
             probs_forests = []
             single_tree_scores = []
             single_tree_scores_mean_ests = []
@@ -63,24 +63,32 @@ class Analyzer:
 
             iterable = tqdm(probs_orig) if show_progress_on_init else probs_orig
             for t, probs_tree in enumerate(iterable, start=1):
-                mask = ~np.isnan(probs_tree)[:, 0]
-                mask_insert = mask & np.isnan(probs_forest)[:, 0]
-                mask_update = mask & ~np.isnan(probs_forest)[:, 0]
+                mask_for_validated_instances = ~np.isnan(probs_tree)[:, 0]
+                mask_insert = mask_for_validated_instances & np.isnan(probs_forest)[:, 0]
+                mask_update = mask_for_validated_instances & ~np.isnan(probs_forest)[:, 0]
                 old_counter = counter.copy()
-                counter[mask] += 1
+                counter[mask_for_validated_instances] += 1
                 probs_forest[mask_insert] = probs_tree[mask_insert]
                 probs_forest[mask_update] = (old_counter[mask_update] * probs_forest[mask_update] + probs_tree[
                     mask_update]) / counter[mask_update]
                 probs_forests.append(probs_forest.copy())
 
+                # check insertable instances
+                mask_for_scatter_insertable_instances = mask_for_validated_instances & (counter[:, 0] == 1)
+                prob_vars_forest[mask_for_scatter_insertable_instances, :] = 0
+
                 # compute probability variances
                 if t == 1:
                     correction_terms.append(0)  # no variance estimate for first tree
                 else:
-                    prob_vars_forest[mask] = (prob_vars_forest[mask] * old_counter[mask] + (
-                                probs_tree[mask] - probs_forests[-2][mask]) * (
-                                                          probs_tree[mask] - probs_forests[-1][mask])) / counter[
-                                                 mask]  # this has slight bias
+                    mask_for_scatter_updateable_instances = mask_for_validated_instances & (counter[:, 0] >= 2)
+                    previous_scatter = prob_vars_forest[mask_for_scatter_updateable_instances] * old_counter[
+                        mask_for_scatter_updateable_instances]
+                    update_factor1 = probs_tree[mask_for_scatter_updateable_instances] - probs_forests[-2][
+                        mask_for_scatter_updateable_instances]
+                    update_factor2 = probs_tree[mask_for_scatter_updateable_instances] - probs_forests[-1][
+                        mask_for_scatter_updateable_instances]
+                    prob_vars_forest[mask_for_scatter_updateable_instances] = (previous_scatter + update_factor1 * update_factor2) / counter[mask_for_scatter_updateable_instances]  # this has slight bias
                     correction_term = np.nanmean(prob_vars_forest.sum(axis=1))
                     correction_terms.append(correction_term)
 
@@ -99,6 +107,9 @@ class Analyzer:
                 # mu = single_tree_scores_mean_ests[-1] if single_tree_scores_mean_ests else 0
                 single_tree_scores_mean_ests.append(np.nanmean(single_tree_scores))  # ((t - 1) * mu + score_tree) / t)
                 single_tree_scores_std_ests.append(np.nanstd(single_tree_scores))
+
+            # sanity check of correction terms
+            assert np.isclose(correction_terms[-1], np.nanvar(probs_orig, axis=0).sum(axis=1).mean())
 
             # compute probabilities and scores
             self.scores_of_single_trees[key] = tuple(single_tree_scores)
