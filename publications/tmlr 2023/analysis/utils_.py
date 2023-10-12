@@ -101,7 +101,9 @@ class Analyzer:
                 # update average number of trees used for an assessment
                 if key == "oob":
                     self.num_trees_used_on_avg_for_oob_estimates_at_forest_size.append(
-                        int((~np.isnan(probs_orig))[:t, :, 0].sum(axis=0).mean()))
+                        int(np.ceil(t * 0.366))
+                        #int((~np.isnan(probs_orig))[:t, :, 0].sum(axis=0).mean())
+                    )
 
                 # compute empirical mean and std of performance of a single tree per forest size
                 # mu = single_tree_scores_mean_ests[-1] if single_tree_scores_mean_ests else 0
