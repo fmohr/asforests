@@ -117,6 +117,7 @@ class Analyzer:
         self.correction_terms_for_t1_per_time = {}
         self.confidence_term_for_correction_term_per_time = {}
         self.num_trees_used_on_avg_for_oob_estimates_at_forest_size = []
+        self.variances_of_zt = {}
         for key, probs_orig, Y in zip(["oob", "val"], [prob_history_oob, prob_history_val],
                                       [self.Y_train, self.Y_val]):
 
@@ -132,11 +133,24 @@ class Analyzer:
             forest_scores = []
             correction_terms = []
             confidence_term_for_correction_term_per_time = []
+            variances_of_zt = {}
             
             momenter = Momenter(input_dims=Y.shape, max_p=4)
 
             iterable = tqdm(probs_orig) if show_progress_on_init else probs_orig
             for t, probs_tree in enumerate(iterable, start=1):
+                
+                # estimate variance V[Z_t] with many bootstraps
+                sample_size_to_estimate_VZt = 100
+                if t <= 500 and t <= probs_orig.shape[0] * 0.25:
+                    scores = []
+                    for _ in range(sample_size_to_estimate_VZt):
+                        permutation = np.random.choice(range(len(probs_orig)), t, replace=False)
+                        probs = probs_orig[permutation]
+                        brier_score = np.nanmean(((Y_train - np.nanmean(probs, axis=0))**2).sum(axis=1))
+                        scores.append(brier_score)
+
+                    variances_of_zt[t] = np.var(scores)
                 
                 # tell momenter
                 momenter.add_entry(probs_tree)
@@ -177,6 +191,7 @@ class Analyzer:
             self.scores_of_forests[key] = tuple(forest_scores)
             self.correction_terms_for_t1_per_time[key] = tuple(correction_terms)
             self.confidence_term_for_correction_term_per_time[key] = confidence_term_for_correction_term_per_time
+            self.variances_of_zt[key] = variances_of_zt
 
         # things to compute lazy
         self.ci_histories = {
