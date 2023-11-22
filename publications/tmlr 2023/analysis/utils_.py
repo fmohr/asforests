@@ -1,6 +1,7 @@
 import itertools as it
 from tqdm import tqdm
 from scipy import stats
+from scipy.special import binom
 import os
 import pickle
 import pandas as pd
@@ -9,6 +10,76 @@ import matplotlib.pyplot as plt
 import json
 import zlib
 import multiprocessing.pool
+
+
+class Momenter:
+    
+    def __init__(self, input_dims=None, max_p=4):
+        
+        self.input_dims = input_dims
+        self.max_p = max_p
+        self.means_over_time = []
+        self.moments_over_time_ = []
+        if input_dims is not None:
+            self.reset_()
+    
+    def reset_(self):
+        self.counts = np.zeros(self.input_dims)
+        self.M = np.zeros(tuple([self.max_p] + (list(self.input_dims))))
+    
+    def add_entry(self, new_obs):
+        
+        if not isinstance(new_obs, np.ndarray):
+            new_obs = np.array(new_obs)
+        
+        if self.input_dims is None:
+            self.input_dims = new_obs.shape
+            self.reset_()
+            
+        elif new_obs.shape != self.input_dims:
+            raise ValueError(f"Expected shape {self.input_dims} but is {new_obs.shape}")
+        
+        # compute updated moment
+        mask = ~np.isnan(new_obs)
+        self.counts += mask
+        
+        M_masked = self.M[:,mask]
+        
+        N = self.counts[mask]
+        mu = self.means_over_time[-1].copy() if self.means_over_time else np.zeros(self.input_dims)
+        delta = new_obs[mask] - mu[mask]
+        for p in range(1, self.max_p + 1):
+            
+            t1 = M_masked[p-1]
+            
+            t2 = ((N - 1) / (-N)**p + ((N - 1) / N)**p) * delta**p
+
+            t3 = 0
+            for k in range(1, p-1):
+                t3 += binom(p, k) * M_masked[p-k-1] * (-delta/N)**k
+        
+            self.M[p-1][mask] = t1 + t2 + t3
+        
+        # add moments to history
+        self.moments_over_time_.append(self.M / np.maximum(1, self.counts))
+        mu[mask] = ((self.counts[mask]-1) * mu[mask] + new_obs[mask]) / self.counts[mask]
+        self.means_over_time.append(mu)
+        
+    def add_batch(self, new_obs_batch, axis=0):
+        if axis != 0:
+            order = list(range(len(new_obs_batch.shape)))
+            order[0] = axis
+            for i in range(1, axis + 1):
+                order[i] -= 1
+            order = tuple(order)
+            new_obs_batch = new_obs_batch.transpose(order)
+        
+        for obs in tqdm(new_obs_batch):
+            self.add_entry(obs)
+    
+    @property
+    def moments_over_time(self):
+        return np.array(self.moments_over_time_).transpose(1, 0, *range(2, len(self.input_dims) + 2))
 
 
 class Analyzer:
@@ -43,6 +114,11 @@ class Analyzer:
         self.single_tree_scores_mean_ests = {}
         self.single_tree_scores_std_ests = {}
         self.scores_of_forests = {}
+        
+        self.prob_y_momenters = {
+            "oob": Momenter(input_dims=Y_train.shape, max_p=4),
+            "val": Momenter(input_dims=Y_val.shape, max_p=4)
+        }
         self.correction_terms_for_t1_per_time = {}
         self.num_trees_used_on_avg_for_oob_estimates_at_forest_size = []
         for key, probs_orig, Y in zip(["oob", "val"], [prob_history_oob, prob_history_val],
@@ -54,43 +130,24 @@ class Analyzer:
             probs_forest[:] = np.nan
             prob_vars_forest = np.zeros(counter.shape)
             prob_vars_forest[:] = np.nan
-            probs_forests = []
             single_tree_scores = []
             single_tree_scores_mean_ests = []
             single_tree_scores_std_ests = []
             forest_scores = []
             correction_terms = []
+            
+            momenter = self.prob_y_momenters[key]
 
             iterable = tqdm(probs_orig) if show_progress_on_init else probs_orig
             for t, probs_tree in enumerate(iterable, start=1):
-                mask_for_validated_instances = ~np.isnan(probs_tree)[:, 0]
-                mask_insert = mask_for_validated_instances & np.isnan(probs_forest)[:, 0]
-                mask_update = mask_for_validated_instances & ~np.isnan(probs_forest)[:, 0]
-                old_counter = counter.copy()
-                counter[mask_for_validated_instances] += 1
-                probs_forest[mask_insert] = probs_tree[mask_insert]
-                probs_forest[mask_update] = (old_counter[mask_update] * probs_forest[mask_update] + probs_tree[
-                    mask_update]) / counter[mask_update]
-                probs_forests.append(probs_forest.copy())
-
-                # check insertable instances
-                mask_for_scatter_insertable_instances = mask_for_validated_instances & (counter[:, 0] == 1)
-                prob_vars_forest[mask_for_scatter_insertable_instances, :] = 0
-
-                # compute probability variances
-                if t == 1:
-                    correction_terms.append(0)  # no variance estimate for first tree
-                else:
-                    mask_for_scatter_updateable_instances = mask_for_validated_instances & (counter[:, 0] >= 2)
-                    previous_scatter = prob_vars_forest[mask_for_scatter_updateable_instances] * old_counter[
-                        mask_for_scatter_updateable_instances]
-                    update_factor1 = probs_tree[mask_for_scatter_updateable_instances] - probs_forests[-2][
-                        mask_for_scatter_updateable_instances]
-                    update_factor2 = probs_tree[mask_for_scatter_updateable_instances] - probs_forests[-1][
-                        mask_for_scatter_updateable_instances]
-                    prob_vars_forest[mask_for_scatter_updateable_instances] = (previous_scatter + update_factor1 * update_factor2) / counter[mask_for_scatter_updateable_instances]  # this has slight bias
-                    correction_term = np.nanmean(prob_vars_forest.sum(axis=1))
-                    correction_terms.append(correction_term)
+                
+                # tell momenter
+                momenter.add_entry(probs_tree)
+                
+                probs_forest = momenter.means_over_time[-1]
+                prob_vars_forest = momenter.moments_over_time_[-1][1] # index 1 is for variances
+                correction_term = np.nanmean(prob_vars_forest.sum(axis=1))
+                correction_terms.append(correction_term)
 
                 # compute actual scores for this tree and the forest including this tree
                 score_tree = np.nanmean(((probs_tree - Y) ** 2).sum(axis=1))
@@ -469,15 +526,11 @@ class Analyzer:
             plt.show()
 
 
-def get_analyzer_from_row(row, show_progress_on_init=False):
-    openmlid = int(row["openmlid"])
-    seed = int(row["seed"])
-    results = json.loads(row["scores"])
-
-    Y_train = np.array(results[1])
-    Y_test = np.array(results[2])
-    prob_history_oob = np.array(json.loads(zlib.decompress(eval(results[3])).decode().replace("nan", "-1")))
-    prob_history_val = np.array(json.loads(zlib.decompress(eval(results[4])).decode().replace("nan", "-1")))
+def decode_result_field(encoded_result_field):
+    Y_train = np.array(encoded_result_field[1])
+    Y_test = np.array(encoded_result_field[2])
+    prob_history_oob = np.array(json.loads(zlib.decompress(eval(encoded_result_field[3])).decode().replace("nan", "-1")))
+    prob_history_val = np.array(json.loads(zlib.decompress(eval(encoded_result_field[4])).decode().replace("nan", "-1")))
 
     num_classes = Y_train.shape[1]
 
@@ -485,22 +538,31 @@ def get_analyzer_from_row(row, show_progress_on_init=False):
     prob_history_val[prob_history_val < 0] = np.nan
 
     # times
-    times_fit = results[-4]
-    times_predict_train = results[-3]
-    times_predict_val = results[-2]
-    times_update = results[-1]
+    times_fit = encoded_result_field[-4]
+    times_predict_train = encoded_result_field[-3]
+    times_predict_val = encoded_result_field[-2]
+    times_update = encoded_result_field[-1]
+
+    return {
+        "prob_history_oob": prob_history_oob,
+        "prob_history_val": prob_history_val,
+        "Y_train": Y_train,
+        "Y_test": Y_test,
+        "times_fit": times_fit,
+        "times_predict_train": times_predict_train,
+        "times_predict_val": times_predict_val,
+        "times_update": times_update
+    }
+
+def get_analyzer_from_row(row, show_progress_on_init=False):
+    openmlid = int(row["openmlid"])
+    seed = int(row["seed"])
+    results = json.loads(row["scores"])
 
     analyzer = Analyzer(
         openmlid,
         seed,
-        prob_history_oob,
-        prob_history_val,
-        Y_train,
-        Y_test,
-        times_fit,
-        times_predict_train,
-        times_predict_val,
-        times_update,
+        **decode_result_field(results),
         show_progress_on_init=show_progress_on_init
     )
     return analyzer
@@ -519,6 +581,82 @@ def get_analyzer_from_disk(openmlid, seed, analysis_folder="."):
 def is_analyzer_serialized(openmlid, seed, analysis_folder="."):
     return os.path.exists(f"{analysis_folder}/analyzers/{openmlid}_{seed}.ana")
 
+
+def get_stopping_point(analyzer, alpha, eps, mode, min_trees=2, num_trees_used_for_forecast=None,
+                       use_conservative_correction_term=False, oob=True,
+                       use_oob_forest_size_estimate_for_correction_term=False):
+    if num_trees_used_for_forecast is not None and min_trees > num_trees_used_for_forecast:
+        raise ValueError(
+            f"num_trees_used_for_forecast is  {num_trees_used_for_forecast} but must not be bigger than min_trees, which is {min_trees}")
+
+    if mode not in ["oracle", "realistic"]:
+        raise ValueError("mode must be 'oracle' or 'realistic'")
+
+    key = "oob" if oob else "val"
+
+    tree_scores = analyzer.scores_of_single_trees[key]
+    forest_scores = analyzer.scores_of_forests[key]
+    correction_terms = analyzer.correction_terms_for_t1_per_time[key]
+
+    if num_trees_used_for_forecast is not None:
+        tree_scores = tree_scores[:num_trees_used_for_forecast]
+        correction_terms = correction_terms[:num_trees_used_for_forecast]
+        std_of_scores = np.std(tree_scores)
+        correction_term = (analyzer.Y_train.shape[1] / 4) if use_conservative_correction_term else correction_terms[
+            num_trees_used_for_forecast - 1]
+
+    if mode == "oracle":
+        std_of_scores = np.std(tree_scores)
+        correction_term = correction_terms[-1]
+
+    for t in range(min_trees, 10 ** 4):
+
+        # define base of operation if no oracle is used
+        if mode != "oracle" and t <= len(tree_scores):
+            if num_trees_used_for_forecast is None:
+                std_of_scores = np.std(tree_scores[:t])
+                correction_term = (analyzer.Y_train.shape[1] / 4) if use_conservative_correction_term else \
+                correction_terms[
+                    t - 1]
+
+        # compute pessimistic gap to asymptotic performance (uncertainty + noise)
+        # for VAL curves, one uses t. For OOB curves, one pretends a smaller forest, of the avg number of trees used for predictions
+        trees_to_be_considered_for_ci = np.ceil(t * 0.366) if oob else t  # this is always t, even for OOB
+
+        # if t is not bigger than v / eps, the probabilities are not well defined
+        v = correction_term  # / (trees_to_be_considered_for_ci if use_oob_forest_size_estimate_for_correction_term else t)
+        if t > v / eps:
+
+            if t > len(forest_scores):
+                #return t - 1
+                raise ValueError
+
+            # first check whether z itself is in an eps environment of E[Z_inf] with high probability
+            ez_1 = np.mean(tree_scores[:t])
+            ez_inf = ez_1 - v
+            z_t = forest_scores[t - 1]
+            ez_inf_uncertainty = np.max([0, stats.norm.ppf(alpha)]) * std_of_scores / np.sqrt(
+                trees_to_be_considered_for_ci)
+            gap = np.abs(z_t - (ez_inf - ez_inf_uncertainty))
+            if gap <= eps:
+
+                # estimate V[Z_t]
+                ez_t = ez_1 - v * (1 - 1 / t)
+                uncertainty_term = 0 * np.sqrt(np.var(tree_scores[:t]) / t)
+                vz_t = np.max([(ez_t - z_t + modifier * uncertainty_term) ** 2 for modifier in [-1, 1]])
+
+                # compute confidence that no future point will be farther away from E[Z_inf] than eps
+                bound = vz_t / (eps - v / t) ** 2
+                if bound < 1 - alpha:
+                    num_tree_count_for_stable_correction_term_estimate = get_num_trees_required_for_stable_correction_term_estimate(
+                        analyzer,
+                        max_trees=t,
+                        max_iterations_without_new_max=5,
+                        do_discount=True,
+                        oob=oob
+                    )
+                    if t >= num_tree_count_for_stable_correction_term_estimate:
+                        return t
 
 def get_results_for_different_alphas_on_dataset(analyzer, eps, pareto_profiles, alphas=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]):
 
@@ -540,16 +678,18 @@ def get_results_for_different_alphas_on_dataset(analyzer, eps, pareto_profiles, 
         "time_100": time_100
     }
     for alpha in alphas:
-        for oob in [False, True]:
-            analyzer.compute_ci_sequence_for_expected_performance_at_size_t_based_on_normality(
-                alpha=alpha,
-                offset=offset,
-                oob=oob
-            )
+        if False:
+            for oob in [False, True]:
+                analyzer.compute_ci_sequence_for_expected_performance_at_size_t_based_on_normality(
+                    alpha=alpha,
+                    offset=offset,
+                    oob=oob
+                )
 
         stopping_point = get_stopping_point(
             analyzer,
-            profiles=[(alpha, eps)],
+            alpha=alpha,
+            eps=eps,
             mode="realistic",
             min_trees=2,
             oob=True,
@@ -565,36 +705,37 @@ def get_results_for_different_alphas_on_dataset(analyzer, eps, pareto_profiles, 
 
         out.update({
             f"t_{alpha}": stopping_point,
-            f"oob_val_{alpha}": oob_gap,
+            f"gap_oob_{alpha}": oob_gap,
             f"gap_val_{alpha}": val_gap,
             f"ok_{alpha}": val_gap <= eps,
             f"time_asrf_{alpha}": time_we
         })
 
     # PARETO APPROACH
-    stopping_point = get_stopping_point(
-        analyzer,
-        profiles=pareto_profiles,
-        mode="realistic",
-        min_trees=2,
-        oob=True,
-        use_oob_forest_size_estimate_for_correction_term=False
-    )
-    if stopping_point is not None and not np.isnan(stopping_point) and stopping_point < len(val_curve):
-        val_gap = np.abs(val_curve[stopping_point] - np.mean(val_curve[-10:]))
-        oob_gap = np.abs(oob_curve[stopping_point] - np.mean(oob_curve[-10:]))
-        time_we = (times_fit[:stopping_point] + times_overhead[:stopping_point]).sum()
-    else:
-        val_gap = oob_gap = 1
-        time_we = np.nan
+    if False:
+        stopping_point = get_stopping_point(
+            analyzer,
+            profiles=pareto_profiles,
+            mode="realistic",
+            min_trees=2,
+            oob=True,
+            use_oob_forest_size_estimate_for_correction_term=False
+        )
+        if stopping_point is not None and not np.isnan(stopping_point) and stopping_point < len(val_curve):
+            val_gap = np.abs(val_curve[stopping_point] - np.mean(val_curve[-10:]))
+            oob_gap = np.abs(oob_curve[stopping_point] - np.mean(oob_curve[-10:]))
+            time_we = (times_fit[:stopping_point] + times_overhead[:stopping_point]).sum()
+        else:
+            val_gap = oob_gap = 1
+            time_we = np.nan
 
-    out.update({
-        f"t_pareto": stopping_point,
-        f"oob_val_pareto": oob_gap,
-        f"gap_val_pareto": val_gap,
-        f"ok_pareto": val_gap <= eps,
-        f"time_asrf_pareto": time_we
-    })
+        out.update({
+            f"t_pareto": stopping_point,
+            f"oob_val_pareto": oob_gap,
+            f"gap_val_pareto": val_gap,
+            f"ok_pareto": val_gap <= eps,
+            f"time_asrf_pareto": time_we
+        })
     return out
 
 
@@ -653,7 +794,7 @@ def get_num_trees_required_for_stable_correction_term_estimate(analyzer,
     return np.nan
 
 
-def get_stopping_point(analyzer, profiles, mode, min_trees=2, num_trees_used_for_forecast=None,
+def get_stopping_point_old(analyzer, profiles, mode, min_trees=2, num_trees_used_for_forecast=None,
                        use_conservative_correction_term=False, oob=True,
                        use_oob_forest_size_estimate_for_correction_term=False):
     if num_trees_used_for_forecast is not None and min_trees > num_trees_used_for_forecast:
@@ -694,21 +835,30 @@ def get_stopping_point(analyzer, profiles, mode, min_trees=2, num_trees_used_for
 
         profiles_ok = len(profiles) * [False]
         for i, (alpha, eps) in enumerate(profiles):
-            ci = stats.norm.interval(alpha, loc=0, scale=std_of_scores / np.sqrt(trees_to_be_considered_for_ci))
-            gap = ci[1] + correction_term / (
-                trees_to_be_considered_for_ci if use_oob_forest_size_estimate_for_correction_term else t)
 
-            # accept t if the gap is small enough
-            if gap <= eps:
-                num_tree_count_for_stable_correction_term_estimate = get_num_trees_required_for_stable_correction_term_estimate(
-                    analyzer,
-                    max_trees=t,
-                    max_iterations_without_new_max=5,
-                    do_discount=True,
-                    oob=oob
-                )
-                if t >= num_tree_count_for_stable_correction_term_estimate:
-                    profiles_ok[i] = True
+            # estimate E[Z_t]
+            ci = stats.norm.interval(alpha, loc=0, scale=std_of_scores / np.sqrt(trees_to_be_considered_for_ci))
+            ez_t = np.mean(ci) + correction_term / (
+                trees_to_be_considered_for_ci if use_oob_forest_size_estimate_for_correction_term else t)
+            print(ez_t)
+            return t
+
+            if False:
+                ci = stats.norm.interval(alpha, loc=0, scale=std_of_scores / np.sqrt(trees_to_be_considered_for_ci))
+                gap = ci[1] + correction_term / (
+                    trees_to_be_considered_for_ci if use_oob_forest_size_estimate_for_correction_term else t)
+
+                # accept t if the gap is small enough
+                if gap <= eps:
+                    num_tree_count_for_stable_correction_term_estimate = get_num_trees_required_for_stable_correction_term_estimate(
+                        analyzer,
+                        max_trees=t,
+                        max_iterations_without_new_max=5,
+                        do_discount=True,
+                        oob=oob
+                    )
+                    if t >= num_tree_count_for_stable_correction_term_estimate:
+                        profiles_ok[i] = True
 
         if all(profiles_ok):
             return t
