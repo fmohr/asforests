@@ -147,7 +147,7 @@ class Analyzer:
                     for _ in range(sample_size_to_estimate_VZt):
                         permutation = np.random.choice(range(len(probs_orig)), t, replace=False)
                         probs = probs_orig[permutation]
-                        brier_score = np.nanmean(((Y_train - np.nanmean(probs, axis=0))**2).sum(axis=1))
+                        brier_score = np.nanmean(((Y - np.nanmean(probs, axis=0))**2).sum(axis=1))
                         scores.append(brier_score)
 
                     variances_of_zt[t] = np.var(scores)
