@@ -547,7 +547,7 @@ def decode_result_field(encoded_result_field):
         "prob_history_oob": prob_history_oob,
         "prob_history_val": prob_history_val,
         "Y_train": Y_train,
-        "Y_test": Y_test,
+        "Y_val": Y_test,
         "times_fit": times_fit,
         "times_predict_train": times_predict_train,
         "times_predict_val": times_predict_val,
