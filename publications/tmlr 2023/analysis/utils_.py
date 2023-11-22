@@ -114,12 +114,8 @@ class Analyzer:
         self.single_tree_scores_mean_ests = {}
         self.single_tree_scores_std_ests = {}
         self.scores_of_forests = {}
-        
-        self.prob_y_momenters = {
-            "oob": Momenter(input_dims=Y_train.shape, max_p=4),
-            "val": Momenter(input_dims=Y_val.shape, max_p=4)
-        }
         self.correction_terms_for_t1_per_time = {}
+        self.confidence_term_for_correction_term_per_time = {}
         self.num_trees_used_on_avg_for_oob_estimates_at_forest_size = []
         for key, probs_orig, Y in zip(["oob", "val"], [prob_history_oob, prob_history_val],
                                       [self.Y_train, self.Y_val]):
@@ -135,8 +131,9 @@ class Analyzer:
             single_tree_scores_std_ests = []
             forest_scores = []
             correction_terms = []
+            confidence_term_for_correction_term_per_time = []
             
-            momenter = self.prob_y_momenters[key]
+            momenter = Momenter(input_dims=Y.shape, max_p=4)
 
             iterable = tqdm(probs_orig) if show_progress_on_init else probs_orig
             for t, probs_tree in enumerate(iterable, start=1):
@@ -145,9 +142,12 @@ class Analyzer:
                 momenter.add_entry(probs_tree)
                 
                 probs_forest = momenter.means_over_time[-1]
-                prob_vars_forest = momenter.moments_over_time_[-1][1] # index 1 is for variances
+                moments = momenter.moments_over_time_[-1]
+                prob_vars_forest = moments[1] # index 1 is for variances
                 correction_term = np.nanmean(prob_vars_forest.sum(axis=1))
+                confidence_term = np.nanmean(np.sqrt(np.maximum(0, moments[3] - moments[1]**2)).sum(axis=1))
                 correction_terms.append(correction_term)
+                confidence_term_for_correction_term_per_time.append(confidence_term)
 
                 # compute actual scores for this tree and the forest including this tree
                 score_tree = np.nanmean(((probs_tree - Y) ** 2).sum(axis=1))
@@ -176,6 +176,7 @@ class Analyzer:
             self.single_tree_scores_std_ests[key] = single_tree_scores_std_ests
             self.scores_of_forests[key] = tuple(forest_scores)
             self.correction_terms_for_t1_per_time[key] = tuple(correction_terms)
+            self.confidence_term_for_correction_term_per_time[key] = confidence_term_for_correction_term_per_time
 
         # things to compute lazy
         self.ci_histories = {
