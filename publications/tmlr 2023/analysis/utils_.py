@@ -142,7 +142,7 @@ class Analyzer:
                 
                 # estimate variance V[Z_t] with many bootstraps
                 sample_size_to_estimate_VZt = 100
-                if t <= 500 and t <= probs_orig.shape[0] * 0.25:
+                if False and t <= 500 and t <= probs_orig.shape[0] * 0.25:
                     scores = []
                     for _ in range(sample_size_to_estimate_VZt):
                         permutation = np.random.choice(range(len(probs_orig)), t, replace=False)
