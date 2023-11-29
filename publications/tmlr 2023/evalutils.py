@@ -1,28 +1,22 @@
 import numpy as np
 import pandas as pd
 import openml
-import os, psutil
+import psutil
 import gc
 import zlib
 import logging
 
 import time
-import random
 
-import itertools as it
-import scipy.stats
-from scipy.sparse import lil_matrix
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 
 import sklearn
-from sklearn import metrics
 import sklearn.impute
 import sklearn.preprocessing
 
-from tqdm import tqdm
-
 import asforests
+from utils_ import *
 
 eval_logger = logging.getLogger("evalutils")
 
@@ -73,24 +67,34 @@ def get_mandatory_preprocessing(X, y):
     else:
         return []
     
-def get_required_num_trees(prob_history, tree_score_history, eps, certainty_factor = 3):
-    t = 1
-    prob_history = np.array(prob_history)
-    avg_summed_var = np.nanmean(np.nanvar(prob_history, axis=0).sum(1))
-    std_of_scores = np.std(tree_score_history)
-    instances_missed_on_avg = np.sum(np.isnan(prob_history)) / np.prod(prob_history.shape)
-    #actual_instance_factor = 1 - instances_missed_on_avg
+def get_required_num_trees(prob_history, tree_score_history, eps, alpha):
     
-    num_classes = prob_history.shape[2]
+    n, k = prob_history[0].shape
     
-    gap = lambda t: certainty_factor * std_of_scores / np.sqrt(t) + num_classes / (4 * t)
+    momenter = Momenter()
+    momenter.add_batch(prob_history, axis=0)
+    moments_over_time = momenter.moments_over_time
+    
+    variances = moments_over_time[1][-1]  # latest estimate for variance
+    m4s = moments_over_time[3][-1]  # latest estimate for 4th moment
+    vbar = variances.sum(axis=1).mean()
+    cbar = np.sqrt(np.maximum(0, m4s - variances ** 2)).sum(axis=1).mean()
+    
+    t = 2  # minimum number of trees, usually one per CPU, at least 2
+    beta = 0.5
     
     while True:
-        if gap(t) <= eps:
-            return t
+        tau = stats.t.ppf(1 - (1 - beta) * (1 - alpha) / k, df=t-1)
+        kappa = stats.norm.ppf(1 - beta * (1 - alpha))
+        
+        # first criterion: bound on expected regret is smaller than eps.
+        delta = eps - (vbar + tau * cbar / np.sqrt(t)) / t
+        if delta > 0:
+            if kappa * np.sqrt(2 / (n * t)) <= delta:
+                return t   
         t += 1
 
-def build_full_classification_forest(openmlid, seed, zfactor, eps):
+def build_full_classification_forest(openmlid, seed, alpha, eps):
     
     print("Loading dataset")
     X, y = get_dataset(openmlid)
@@ -209,7 +213,7 @@ def build_full_classification_forest(openmlid, seed, zfactor, eps):
                 f"Memory; {np.round(memory_now, 1)}MB."
             )
         
-        required_trees = get_required_num_trees(prob_history_oob, tree_score_history_oob, eps=eps, certainty_factor=zfactor)
+        required_trees = get_required_num_trees(prob_history_oob, tree_score_history_oob, eps=eps, alpha=alpha)
         eval_logger.info(f"New estimate for required number of trees: {required_trees}. Currently have info for {t}.")
         if t >= required_trees:
             break

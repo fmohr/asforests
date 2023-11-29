@@ -27,7 +27,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     # Extracting given parameters
     openmlid = int(keyfields['openmlid'])
     seed = int(keyfields['seed'])
-    zfactor = float(keyfields['zfactor'])
+    alpha = float(keyfields['alpha'])
     eps = float(keyfields['eps'])
     is_classification = sys.argv[2] == "classification"
     
@@ -36,7 +36,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     # Write intermediate results to database
     if is_classification:
         resultfields = {
-            'scores': json.dumps(build_full_classification_forest(openmlid, seed, zfactor=zfactor, eps=eps))
+            'scores': json.dumps(build_full_classification_forest(openmlid, seed, alpha=alpha, eps=eps))
         }
     else:
         resultfields = {
@@ -63,8 +63,8 @@ if __name__ == '__main__':
         experimenter.execute(run_experiment, max_experiments=-1)
     else:
         run_experiment({
-            'openmlid':  61,
+            'openmlid':  6,
             'seed': 1,
-            'zfactor': 3,
+            'alpha': 0.99,
             'eps': 0.005
         }, None, None)
