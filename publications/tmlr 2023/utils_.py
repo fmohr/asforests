@@ -7,6 +7,7 @@ import json
 import zlib
 from asforests.momenter_ import Momenter
 import gzip
+import pathlib
 
 
 class Analyzer:
@@ -755,3 +756,6 @@ def create_analysis_file_from_result_file(
     # gzip file
     with open(analysis_file, 'rb') as f_in, gzip.open(analysis_file_gz, 'wb') as f_out:
         f_out.writelines(f_in)
+
+    # remove unpacked file
+    pathlib.Path(analysis_file).unlink()
