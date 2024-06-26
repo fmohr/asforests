@@ -1,15 +1,12 @@
 import itertools as it
 from tqdm import tqdm
 from scipy import stats
-import os
-import pickle
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import json
 import zlib
-import multiprocessing.pool
 from asforests.momenter_ import Momenter
+import gzip
 
 
 class Analyzer:
@@ -57,12 +54,20 @@ class Analyzer:
 
         # store all the rest in info dict
         self.info = kwargs
+        print(self.info.keys())
 
         # things to compute lazy
         self.ci_histories = {
             "oob": {},
             "val": {}
         }
+
+    @staticmethod
+    def for_dataset(openmlid, seed=0, folder="data"):
+
+        # read in data
+        with open(f"{folder}/{openmlid}_{seed}.json", "r") as f:
+            return Analyzer(**json.load(f))
 
     def sample_rf_behavior_from_probs(self, probs_orig, Y, forest_size=None):
         if forest_size is None:
@@ -173,80 +178,6 @@ class Analyzer:
                         color="red", alpha=0.2)
         ax.fill_between(times, expected_limit_performance - eps, expected_limit_performance + eps, alpha=0.2)
         ax.set_ylim([expected_limit_performance - 5 * eps, expected_limit_performance + 5 * eps])
-
-        if fig is not None:
-            plt.show()
-
-    def create_full_belief_plot(self, alpha, eps, ci_offset, min_trees=5, decision_oob=True, scoring_oob=True,
-                                eps_limit_multiplier=3, ax=None):
-        first_key_decision = "oob" if decision_oob else "val"
-        first_key_scoring = "oob" if scoring_oob else "val"
-        second_key = alpha
-
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(16, 5))
-        else:
-            fig = None
-
-        decision_lines = {}
-        x_lim = 400
-        for i, key in enumerate(["oob", "val"]):
-            color = f"C{i}"
-            scores = self.scores_of_forests[key]
-            correction_terms_over_time = self.correction_terms_for_t1_per_time[key]
-            cis = np.array([list(e) for e in self.ci_histories[key][second_key]["orig"]])
-
-            times = range(1, len(scores) + 1)
-
-            # actual performance
-            ax.plot(times, scores, color=color, label="$Z_t^{" + key + "}$")
-
-            # expected performance (approximated)
-            final_belief_of_correction_term_at_t1 = correction_terms_over_time[-1]
-            correction_terms_over_time_based_on_final_belief = final_belief_of_correction_term_at_t1 / times
-            expected_limit_performance = sum(cis[
-                                                 -1]) / 2 - final_belief_of_correction_term_at_t1  # take the last estimate (as best estimate), but do NOT divide by t here, because this is inferred via the estimate on t = 1
-            ax.axhline(expected_limit_performance, linestyle="--", color=color, linewidth=1,
-                       label="$\mathbb{E}[Z_\infty]$")
-            ax.plot(times, expected_limit_performance + correction_terms_over_time_based_on_final_belief, color=color,
-                    linestyle="dotted", label="$\mathbb{E}[Z_t]$")
-            if key == "val":
-                ax.fill_between(times, expected_limit_performance - eps, expected_limit_performance + eps,
-                                color="green", alpha=0.2)
-
-            # add confidence intervals for what is believed to be the true final performance
-            ax.fill_between(
-                times[ci_offset - 1:],
-                [e[0] - final_belief_of_correction_term_at_t1 for e in cis],
-                [e[1] - final_belief_of_correction_term_at_t1 for e in cis],
-                alpha=0.2
-            )
-
-            # plot decision lines
-            oob = key == "oob"
-            decision_line = self.get_stopping_point(alpha, eps, "realistic" if oob else "oracle", min_trees=min_trees,
-                                                    oob=oob)
-            decision_lines[key] = decision_line
-            ax.axvline(decision_line, color=color, linestyle="--", linewidth=1, label="$t^{" + key + "}$")
-            if oob:
-                decision_line = self.get_stopping_point(alpha, eps, "realistic" if oob else "oracle",
-                                                        min_trees=min_trees, oob=oob,
-                                                        use_oob_forest_size_estimate_for_correction_term=True)
-                decision_lines[key + "_conservative"] = decision_line
-                ax.axvline(decision_line, color=color, linestyle="dotted", linewidth=1,
-                           label="$t^{" + key + "}$ OOB pure")
-                x_lim = np.max([x_lim, decision_line * 1.2])
-
-        ax.set_xlim([1, x_lim])
-        ax.set_xscale("log")
-        ax.set_ylim([expected_limit_performance - eps_limit_multiplier * eps,
-                     expected_limit_performance + eps_limit_multiplier * eps])
-
-        ax.legend()
-        ax.set_title(
-            f"Stopping after {decision_lines['oob']} trees (OOB)."
-            f"Perfect decision would be {decision_lines['val']} (VAL orcale)"
-        )
 
         if fig is not None:
             plt.show()
@@ -584,8 +515,8 @@ class Analyzer:
 
     def create_full_belief_plot(
             self,
-            alpha,
-            eps,
+            alpha=0.95,
+            eps=0.01,
             ci_offset=2,
             min_trees=5,
             decision_oob=True,
@@ -680,7 +611,13 @@ class Analyzer:
             return fig
 
 
-def get_analysis_data_from_result_file(openmlid, seed, result_folder="./results", show_progress=True):
+def create_analysis_file_from_result_file(
+        openmlid,
+        seed,
+        result_folder="./results",
+        analysis_folder="../analysis",
+        show_progress=True
+):
 
     # read in results
     filename = f"{result_folder}/{openmlid}_{seed}.json"
@@ -809,9 +746,12 @@ def get_analysis_data_from_result_file(openmlid, seed, result_folder="./results"
         "variances_of_zt": variances_of_zt
     })
 
-    for k, v in analysis_data.items():
-        print(k, type(v))
-        if isinstance(v, dict):
-            for k_sub, v_sub in v.items():
-                print("\t", k_sub, type(v_sub))
-    return analysis_data
+    # dump analysis data into file
+    analysis_file = f"{analysis_folder}/{openmlid}_{seed}.json"
+    analysis_file_gz = f"{analysis_file}.gz"
+    with open(analysis_file, "w") as f:
+        json.dump(analysis_data, f)
+
+    # gzip file
+    with open(analysis_file, 'rb') as f_in, gzip.open(analysis_file_gz, 'wb') as f_out:
+        f_out.writelines(f_in)
