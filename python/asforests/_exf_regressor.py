@@ -2,7 +2,7 @@ import numpy as np
 from scipy.stats import bootstrap
 import sklearn.ensemble
 import logging
-from ._grower import ForestGrower
+from ._grower import EnsembleGrower
 
 class ExtraTreesRegressor(sklearn.ensemble.ExtraTreesRegressor):
     

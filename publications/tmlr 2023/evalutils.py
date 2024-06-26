@@ -22,12 +22,9 @@ eval_logger = logging.getLogger("evalutils")
 
 
 def get_dataset(openmlid):
-    ds = openml.datasets.get_dataset(openmlid)
-    print("dataset info loaded")
+    ds = openml.datasets.get_dataset(openmlid, download_data=False, download_qualities=False, download_features_meta_data=False)
     df = ds.get_data()[0]
     num_rows = len(df)
-    
-    print("Data in memory, now creating X and y")
         
     # prepare label column as numpy array
     X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
