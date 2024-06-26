@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import json
 import zlib
 import multiprocessing.pool
-from .asforests.momenter_ import Momenter
+from asforests.momenter_ import Momenter
 
 
 class Analyzer:
