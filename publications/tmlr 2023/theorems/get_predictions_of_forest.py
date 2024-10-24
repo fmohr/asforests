@@ -28,7 +28,7 @@ if __name__ == "__main__":
         clf = ExtraTreesClassifier(n_estimators=0, random_state=seed, warm_start=True, **kwargs)
 
         print(f"Ready. Now starting training for seed {seed}")
-        for i in tqdm(range(100)):
+        for i in tqdm(range(10**3)):
             clf.n_estimators += 10**3
             clf.fit(X_train, y_train)
         print(f"Finished training a forest with {len(clf)} trees")
