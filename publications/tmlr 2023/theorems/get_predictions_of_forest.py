@@ -34,8 +34,9 @@ if __name__ == "__main__":
         print(f"Finished training a forest with {len(clf)} trees")
         print("Now getting predictions")
         predictions = clf.predict_proba(X_test[:10**5])
-        print("Writing result file.")
+        print(f"Writing result file {filename}.")
         pd.DataFrame(predictions, columns=["p1", "p2"]).to_csv(filename)
+        print(f"Results successfully written to {filename}")
     
     else:
         print(f"File {filename} exists already. Skipping.")
