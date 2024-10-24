@@ -16,7 +16,7 @@ class Momenter:
 
         # state variables
         self.n = 0
-        #self.counts = None
+        self.counts = None
         self.M = None
         self.means_ = None
         self.moments_ = None
@@ -152,3 +152,7 @@ class Momenter:
         if not self.keep_history:
             raise ValueError("Momenter not configured to keep moments over time.")
         return np.array(self.moments_over_time_).transpose(1, 0, *range(2, len(self.input_dims) + 2))
+
+    @property
+    def avg_num_samples(self):
+        return np.mean(self.n) if self.n is not None else 0

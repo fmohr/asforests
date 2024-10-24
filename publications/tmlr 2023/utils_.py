@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import json
 import zlib
 from asforests.momenter_ import Momenter
+from asforests._grower import EnsembleGrower, DummyOutputSupplier
 import gzip
 import pathlib
 
@@ -55,7 +56,6 @@ class Analyzer:
 
         # store all the rest in info dict
         self.info = kwargs
-        print(self.info.keys())
 
         # things to compute lazy
         self.ci_histories = {
@@ -67,7 +67,7 @@ class Analyzer:
     def for_dataset(openmlid, seed=0, folder="data"):
 
         # read in data
-        with open(f"{folder}/{openmlid}_{seed}.json", "r") as f:
+        with gzip.GzipFile(f"{folder}/{openmlid}_{seed}.json.gz", "rb") as f:
             return Analyzer(**json.load(f))
 
     def sample_rf_behavior_from_probs(self, probs_orig, Y, forest_size=None):
@@ -102,6 +102,8 @@ class Analyzer:
         trees_to_be_considered_for_ci = self.get_num_trees_used_on_avg_for_oob_estimates_at_forest_size(forest_size) if oob else forest_size  # this is always t, even for OOB
         est_mean = self.single_tree_scores_mean_ests[key][forest_size - 1]
         est_std = self.single_tree_scores_std_ests[key][forest_size - 1]
+        if est_std == 0:
+            est_std = 10**-10
         ci = stats.norm.interval(alpha, loc=est_mean, scale=est_std / np.sqrt(trees_to_be_considered_for_ci))
         return ci
 
@@ -232,7 +234,7 @@ class Analyzer:
             ax.set_title("Estimates of correction term $\\varphi(1)$ over time.")
             plt.show()
 
-    def plot_gap_over_time(self, alpha, eps, oob, min_trees=2, ax=None):
+    def plot_gap_over_time(self, alpha, eps, oob, ax=None):
         if ax is None:
             fig, axs = plt.subplots(2, 1, figsize=(16, 8))
         else:
@@ -332,7 +334,6 @@ class Analyzer:
                 alpha=alpha,
                 eps=eps,
                 mode="realistic",
-                min_trees=2,
                 oob=True
             )
             if stopping_point is not None and not np.isnan(stopping_point) and stopping_point < len(val_curve):
@@ -357,7 +358,6 @@ class Analyzer:
                 analyzer,
                 profiles=pareto_profiles,
                 mode="realistic",
-                min_trees=2,
                 oob=True
             )
             if stopping_point is not None and not np.isnan(stopping_point) and stopping_point < len(val_curve):
@@ -404,115 +404,39 @@ class Analyzer:
                 return t
         return np.nan
 
-    def estimate_var_t_sampled(self, X_val, y_val, t=None, sample_size=10):
+    def get_stopping_point(
+            self,
+            alpha,
+            eps,
+            mode="realistic",
+            betas=None,
+            oob=True,
+            var_zt_estimation_strategy="sample"
+    ):
 
-        # one-hot-encoding of label vector
-        label_list = list(forest.classes_)
-        y_val_oh = np.zeros((len(y_val), len(np.unique(y_val))))
-        for i, label in enumerate(y_val):
-            y_val_oh[i,label_list.index(label)] = 1
+        # create grower
+        grower = EnsembleGrower(
+            output_supplier=DummyOutputSupplier(self.prob_history_oob if oob else self.prob_history_val),
+            y_one_hot=self.Y_train if oob else self.Y_val,
+            oob=oob,
+            tolerances=[(eps, alpha)],
+            max_size=None,
+            n=None,
+            betas=betas,
+            var_zt_estimation_strategy=var_zt_estimation_strategy,
+            max_sample_size_for_vzt_estimation=10**5,
+            logger=None,
+            callbacks=[]
+        )
 
-        # determine deltas for all tree-instance-label combination
-        deltas = []
-        for tree in forest.estimators_[:t]:
-            deltas.append(tree.predict_proba(X_val) - y_val_oh)
-        deltas = np.array(deltas)
-
-        def get_lamba(delta_1, delta_2):
-            if delta_1.shape != delta_2.shape:
-                raise ValueError()
-            return np.sum(delta_1*delta_2, axis=1)
-
-        # estimate V[l_i^ss]
-        lambdas = np.array([get_lamba(delta_s, delta_s) for delta_s in deltas])
-        V_lambda_ss = np.var(lambdas.flatten())
-
-        # estimate V[l_i^ss']
-        lambdas = np.array([get_lamba(delta_s, delta_sp) for i, delta_s in enumerate(deltas) for j, delta_sp in enumerate(deltas) if i != j])
-        V_lambda_sp = np.var(lambdas.flatten())
-
-        # estimate cov[l_i^ss, l_i^ss']
-        indices_for_s = np.arange(t)
-        lambda_pairs = []
-        for s in np.random.choice(indices_for_s, size=min([sample_size, len(indices_for_s)]), replace=False):
-            indices_for_sp = list(np.arange(t))
-            indices_for_sp.remove(s)
-
-            lambda_ss = get_lamba(deltas[s], deltas[s]).copy()
-
-            for sp in np.random.choice(indices_for_sp, size=min([sample_size, len(indices_for_sp)]), replace=False):
-                lambda_ssp = get_lamba(deltas[s], deltas[sp]).copy()
-                lambda_pairs.append([lambda_ss, lambda_ssp])
-        lambda_pairs = np.array(lambda_pairs)
-        lambda_pairs = lambda_pairs.transpose(1, 2, 0)
-        lambda_pairs = lambda_pairs.reshape(2, -1)
-        cov_lambda_s_sp = np.cov(lambda_pairs, rowvar=True, bias=True)[0,1]
-
-        # estimate cov[l_i^ss', l_i^ss'']
-        indices_for_s = np.arange(t)
-        lambda_pairs = []
-        for s in np.random.choice(indices_for_s, size=min([sample_size, len(indices_for_s)]), replace=False):
-            indices_for_sp = list(np.arange(t))
-            indices_for_sp.remove(s)
-
-            for sp in np.random.choice(indices_for_sp, size=min([sample_size, len(indices_for_sp)]), replace=False):
-                lambda_ssp = get_lamba(deltas[s], deltas[sp])
-
-                indices_for_spp = indices_for_sp.copy()
-                indices_for_spp.remove(sp)
-
-                for spp in np.random.choice(indices_for_spp, size=min([sample_size, len(indices_for_spp)]), replace=False):
-                    lambda_sspp = get_lamba(deltas[s], deltas[spp])
-                    lambda_pairs.append([lambda_ssp, lambda_sspp])
-        lambda_pairs = np.array(lambda_pairs)
-        lambda_pairs = lambda_pairs.transpose(1, 2, 0)
-        lambda_pairs = lambda_pairs.reshape(2, -1)
-        cov_lambda_s_sp_spp = np.cov(lambda_pairs, rowvar=True, bias=True)[0,1]
-
-        n = X_val.shape[0]
-
-        return (
-                V_lambda_ss * t +
-                V_lambda_sp * 2 * t * (t - 1) +
-                cov_lambda_s_sp * 4 * t * (t - 1) +
-                cov_lambda_s_sp_spp * 4 * t * (t - 1) * (t - 2)
-        ) / (t ** 4 * n)
-
-    def get_stopping_point(self, alpha, eps, mode="realistic", min_trees=2, beta = 0.5, oob=True):
-        if mode == "oracle":
-            num_trees_used_for_forecast = len(self.scores_of_single_trees["oob"])
-        elif mode == "realistic":
-            num_trees_used_for_forecast = None
-        else:
-            raise ValueError("mode must be 'oracle' or 'realistic'")
-
-        if num_trees_used_for_forecast is not None and min_trees > num_trees_used_for_forecast:
-            raise ValueError(
-                f"num_trees_used_for_forecast is  {num_trees_used_for_forecast} but must not be bigger than min_trees, which is {min_trees}")
+        # simulate growth
+        grower.grow()
 
 
-        key = "oob" if oob else "val"
-        Y = self.Y_train if oob else self.Y_val
-        k = Y.shape[1]
-        n = Y.shape[0]  # TODO: this is not really correct; it should be the number of *test* instances.
+        print(f"Stopped at {grower.size}")
 
-        vbar_per_t = self.correction_terms_for_t1_per_time[key]
-        cbar_per_t = self.confidence_term_for_correction_term_per_time[key]
-
-        t = min_trees  # minimum number of trees, usually one per CPU, at least 2
-
-        while True:
-            vbar = vbar_per_t[t - 1]
-            cbar = cbar_per_t[t - 1]
-            tau = stats.t.ppf(1 - (1 - beta) * (1 - alpha) / k, df=t-1)
-            kappa = stats.norm.ppf(1 - beta * (1 - alpha))
-
-            # first criterion: bound on expected regret is smaller than eps.
-            delta = eps - (vbar + tau * cbar / np.sqrt(t)) / t
-            if delta > 0:
-                if kappa * np.sqrt(2 / (n * t)) <= delta:
-                    return t
-            t += 1
+        # return stopping point
+        return grower.size
 
     def create_full_belief_plot(
             self,
@@ -523,6 +447,7 @@ class Analyzer:
             decision_oob=True,
             scoring_oob=True,
             eps_limit_multiplier=3,
+            var_zt_estimation_strategy="sample",
             ax=None
     ):
         second_key = alpha
@@ -533,13 +458,12 @@ class Analyzer:
             fig = None
 
         decision_lines = {}
-        x_lim = 400
         expected_limit_performances = {}
         for i, key in enumerate(["oob", "val"]):
             oob = key == "oob"
 
             if key not in self.ci_histories or second_key not in [key]:
-                analyzer.compute_ci_sequence_for_expected_performance_at_size_t_based_on_normality(
+                self.compute_ci_sequence_for_expected_performance_at_size_t_based_on_normality(
                     alpha=alpha,
                     offset=ci_offset,
                     oob=oob
@@ -585,15 +509,15 @@ class Analyzer:
             )
 
             # plot decision lines
-            decision_line = self.get_stopping_point(alpha, eps, mode="realistic" if oob else "oracle", min_trees=min_trees, oob=oob)
+            decision_line = self.get_stopping_point(
+                alpha=alpha,
+                eps=eps,
+                mode="realistic",
+                oob=oob,
+                var_zt_estimation_strategy=var_zt_estimation_strategy
+            )
             decision_lines[key] = decision_line
             ax.axvline(decision_line, color=color, linestyle="--", linewidth=1, label="$t^{" + key + "}$")
-            if oob:
-                decision_line = self.get_stopping_point(alpha, eps, "realistic" if oob else "oracle", min_trees=min_trees, oob=oob)
-                decision_lines[key + "_conservative"] = decision_line
-                ax.axvline(decision_line, color=color, linestyle="dotted", linewidth=1,
-                           label="$t^{" + key + "}$ OOB pure")
-                x_lim = np.max([x_lim, decision_line * 1.2])
 
         #ax.set_xlim([1, x_lim])
         ax.set_xscale("log")
@@ -603,9 +527,8 @@ class Analyzer:
 
         ax.legend()
         ax.set_title(
-            f"{self.openmlid} - "
-            f"Stopping after {decision_lines['oob']} trees (OOB)."
-            f"Perfect decision would be {decision_lines['val']} (VAL orcale)"
+            f"{self.openmlid} - $\\alpha={alpha}$ - "
+            f"Stopping after {decision_lines['oob']} trees (OOB) or {decision_lines['val']} (VAL)."
         )
 
         if fig is not None:
