@@ -23,7 +23,7 @@ if __name__ == "__main__":
         X_train, X_test, y_train, y_test = get_data_setup()
         Y_test = get_one_hot_encoding(y_test)
     
-        clf = ExtraTreesClassifier(n_estimators=10**7, random_state=seed, **kwargs)
+        clf = ExtraTreesClassifier(n_estimators=10**6, random_state=seed, **kwargs)
         clf.fit(X_train, y_train)
         pd.DataFrame(clf.predict_proba(X_test[:10**5]), columns=["p1", "p2"]).to_csv(filename)
     
