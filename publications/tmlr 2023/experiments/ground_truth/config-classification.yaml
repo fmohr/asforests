@@ -16,7 +16,7 @@ PY_EXPERIMENTER:
           type: INT
           values:
             start: 0
-            stop: 2
+            stop: 5
             step: 1
 
       result_timestamps: False
