@@ -1,3 +1,5 @@
+import time
+
 from py_experimenter.experimenter import PyExperimenter
 from py_experimenter.result_processor import ResultProcessor
 import logging
@@ -63,6 +65,11 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 
 
 if __name__ == '__main__':
+
+    sleeptime = np.rand.random() * 10
+    print(f"Synthetically sleeping {sleeptime}s to make sure that experiments don't overlap.")
+    time.sleep(sleeptime)
+
     job_name = sys.argv[1]
     job_type = sys.argv[2]
     experimenter = PyExperimenter(
