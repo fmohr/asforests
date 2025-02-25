@@ -12,6 +12,19 @@ import json
 
 import sys
 
+# configure logging
+logger = logging.getLogger("exp")
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+
+eval_logger = logging.getLogger("evalutils")
+eval_logger.setLevel(logging.DEBUG)
+eval_logger.addHandler(ch)
+
 
 def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_config):
     # Extracting given parameters
@@ -21,19 +34,6 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     patience = 500  # int(keyfields['patience'])
     eps = 10**-5  # float(keyfields['eps'])
     is_classification = sys.argv[2] == "classification"
-
-    # configure logging
-    logger = logging.getLogger("exp")
-    logger.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
-    eval_logger = logging.getLogger("evalutils")
-    eval_logger.setLevel(logging.DEBUG)
-    eval_logger.addHandler(ch)
 
     logger.info(
         f"Starting experiment for openmlid {openmlid} and ensemble seed {ensemble_seed}. "
