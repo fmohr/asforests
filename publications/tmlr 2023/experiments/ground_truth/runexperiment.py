@@ -31,7 +31,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     openmlid = int(keyfields['openmlid'])
     data_seed = 0  #int(keyfields['data_seed'])
     ensemble_seed = int(keyfields['ensemble_seed'])
-    patience = 500  # int(keyfields['patience'])
+    patience = 100  # int(keyfields['patience'])
     eps = 10**-5  # float(keyfields['eps'])
     is_classification = sys.argv[2] == "classification"
 
