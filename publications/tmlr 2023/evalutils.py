@@ -99,7 +99,8 @@ def get_performance_curve(
         data_seed_training,
         ensemble_seed,
         eps,
-        patience
+        patience,
+        max_size=10**4
     ):
 
     if problem_type == "classification":
@@ -166,6 +167,8 @@ def get_performance_curve(
     t = 0
 
     score_hist = []
+    fittime_hist = []
+    memory_hist = []
     step_size = 100 if len(X) < 10 ** 4 else 10
 
     while True:
@@ -178,14 +181,14 @@ def get_performance_curve(
             random_state=((3 * ensemble_seed) + 13) * (t + 1),
             n_jobs=1
         )
-        rf.fit(X_train, y_train)
 
-        scores_in_batch = []
+        start = time.time()
+        rf.fit(X_train, y_train)
+        fittime_hist.append(time.time() - start)
+
         for tree in rf:
 
             # update posterior distribution on test set
-            start = time.time()
-            classes_ = tree.classes_
             y_prob_test = tree.predict_proba(X_test) if is_classification else np.array([tree.predict(X_test)])
 
             # prob_history_val.append(y_prob_test.round(4).astype(np.float16))
@@ -206,15 +209,16 @@ def get_performance_curve(
 
             brier_score_val = get_score(Y_test, Y_test_hat)
             score_hist.append(brier_score_val)
+            memory_hist.append(memory_now)
 
         fluctuation = np.inf if len(score_hist) < patience else max(score_hist[-patience:]) - min(score_hist[-patience:])
-        eval_logger.info(f"Max score difference in batch is {fluctuation}")
-        if fluctuation <= eps:
+        eval_logger.info(f"Ensemble size is now {t}. Performance fluctuation among last {patience} is {fluctuation}")
+        if fluctuation <= eps or t >= max_size:
             break
 
     eval_logger.info("Construction ready.")
 
-    return score_hist
+    return {"scores": score_hist, "fittimes": fittime_hist, "memory": memory_hist}
 
 
 def build_full_classification_forest(openmlid, seed, min_steps_eps, eps):
