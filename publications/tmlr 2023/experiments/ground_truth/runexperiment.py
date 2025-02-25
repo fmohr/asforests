@@ -66,7 +66,7 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 
 if __name__ == '__main__':
 
-    sleeptime = np.rand.random() * 10
+    sleeptime = np.random.rand() * 10
     print(f"Synthetically sleeping {sleeptime}s to make sure that experiments don't overlap.")
     time.sleep(sleeptime)
 
