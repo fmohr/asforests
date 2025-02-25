@@ -33,9 +33,9 @@ def get_one_hot_encoding(y, k=None):
         y_onehot[mask, label] = 1
     return y_onehot
 
-def get_data_setup(n_train = 100, n_test = 10**7, data_seed = 0):
+def get_data_setup(n_train = 100, n_test = 10**7, data_seed = 0, n_features=4):
     
-    X, y = make_classification(n_samples=n_train + n_test, n_features=4, n_informative=4, n_redundant=0, random_state=data_seed)
+    X, y = make_classification(n_samples=n_train + n_test, n_features=n_features, n_informative=n_features, n_redundant=0, random_state=data_seed)
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,

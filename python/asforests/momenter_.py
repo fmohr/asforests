@@ -19,11 +19,19 @@ class Momenter:
         self.counts = None
         self.M = None
         self.means_ = None
-        self.moments_ = None
+        self.central_moments_ = None
         self.means_over_time = []
-        self.moments_over_time_ = []
+        self.central_moments_over_time_ = []
         if input_dims is not None:
             self.reset_()
+
+    @property
+    def means(self):
+        return self.means_
+
+    @property
+    def central_moments(self):
+        return self.central_moments_
 
     def reset_(self):
         self.counts = np.zeros(self.input_dims)
@@ -67,9 +75,9 @@ class Momenter:
 
         # store updated means and moments
         self.means_ = mu
-        self.moments_ = self.M / np.maximum(1, self.counts)
+        self.central_moments_ = self.M / np.maximum(1, self.counts)
         if self.keep_history:
-            self.moments_over_time_.append(self.moments_)
+            self.central_moments_over_time_.append(self.central_moments_)
             self.means_over_time.append(self.means_)
 
     def add_batch_one_by_one(self, new_obs_batch, axis=0):
@@ -114,7 +122,7 @@ class Momenter:
 
         if np.all(self.n == 0):
             self.n = N_B
-            self.moments_ = moments
+            self.central_moments_ = moments
             self.M = M_B
             self.means_ = mu_B
         else:
@@ -139,20 +147,96 @@ class Momenter:
                     for k in range(1, p - 1)], axis=0)
                 new_M[i][updated_indices] += t2 + t3 + t4
             self.M[:, updated_indices] = new_M[:, updated_indices]
-            self.moments_[:, updated_indices] = self.M[:, updated_indices] / N[updated_indices]
+            self.central_moments_[:, updated_indices] = self.M[:, updated_indices] / N[updated_indices]
             self.means_[updated_indices] = (N_A[updated_indices] * mu_A[updated_indices] + N_B[updated_indices] * mu_B[updated_indices]) / N[updated_indices]
             self.n[updated_indices] = N[updated_indices]
 
     @property
     def moments(self):
-        return np.array(self.moments_)
+        return np.array(self.central_moments_)
 
     @property
     def moments_over_time(self):
         if not self.keep_history:
             raise ValueError("Momenter not configured to keep moments over time.")
-        return np.array(self.moments_over_time_).transpose(1, 0, *range(2, len(self.input_dims) + 2))
+        return np.array(self.central_moments_over_time_).transpose(1, 0, *range(2, len(self.input_dims) + 2))
 
     @property
     def avg_num_samples(self):
         return np.mean(self.n) if self.n is not None else 0
+
+
+class MixedMomentBuilder:
+
+    def __init__(self):
+        self.mean_x = 0
+        self.mean_y = 0
+        self.cov = None
+        self.m4_ = None
+        self.n = 0
+
+    def add_observations(self, x_array, y_array, axis=0):
+
+        """
+
+        :param x_array: observations in first variable
+        :param y_array: observations in second variable
+        :param axis: axis along which the observations should be summarized (in other axes are not merged)
+        :return:
+        """
+
+        n1 = self.n
+        n2 = x_array.shape[axis]
+
+        # compute covariance of new data (actually scatter, which is covariance except the division by the number of samples)
+        means_x_2 = np.mean(x_array, axis=axis)
+        means_y_2 = np.mean(y_array, axis=axis)
+        scatter_2 = np.einsum("nk,nk -> k", x_array - means_x_2, y_array - means_y_2)
+
+        # update covariance
+        if n1 == 0:
+            self.cov = scatter_2 / (n2 - 1)
+            assert np.all(np.isclose(self.cov, np.array([np.cov(x_array[:, j], y_array[:, j], rowvar=False)[0, 1] for j in range(3)])))
+
+        else:
+
+            # compute shift in means
+            shift_x = self.mean_x - means_x_2
+            shift_y = self.mean_y - means_y_2
+            c = n1 * n2 * shift_x * shift_y / (n1 + n2)
+
+            self.cov = ((n1 - 1) * self.cov + scatter_2 + c) / (n1 + n2 - 1)
+
+        # update means
+        self.mean_x += n2 * (means_x_2 - self.mean_x) / (n1 + n2)
+        self.mean_y += n2 * (means_y_2 - self.mean_y) / (n1 + n2)
+
+        self.n += n2
+
+    """
+    def add_observation(self, x, y):
+        n = self.n + 1
+
+        if n == 1:
+            self.cov = np.zeros(len(x))
+            self.m4_ = np.zeros(len(x))
+
+        for j, (x_for_target, y_for_target) in enumerate(zip(x, y)):
+
+            if n > 1:
+
+                # determine the deltas *before* the mean is updated (i.e. based on the mean of n-1)
+                delta_x = x_for_target - self.mean_x
+                delta_y = y_for_target - self.mean_y
+
+                # update cov
+                self.cov[j] += (delta_x * delta_y - self.cov[j])
+
+                # update 4th moment
+                self.m4_[j] += ((n - 1) / n**2) * ((delta_x * delta_y)**2 - self.m4_[j])# + 2 * (n-1) / n**3 * (2 * delta_x * delta_y)
+
+            # update means
+            self.mean_x += (x_for_target - self.mean_x) / n
+            self.mean_y += (y_for_target - self.mean_y) / n
+            self.n = n
+    """
