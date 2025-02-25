@@ -3,6 +3,7 @@ import time
 from py_experimenter.experimenter import PyExperimenter
 from py_experimenter.result_processor import ResultProcessor
 import logging
+import pathlib
 
 import matplotlib.pyplot as plt
 
@@ -56,7 +57,10 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
     else:
         curve = None
 
-    with open(f"results/{openmlid}_{data_seed}_{ensemble_seed}.json", "w") as f:
+    path = pathlib.Path(f"results/{openmlid}")
+    path.mkdir(parents=True, exist_ok=True)
+
+    with open(f"results/{openmlid}/{data_seed}_{ensemble_seed}.json", "w") as f:
         json.dump(curve, f)
 
     # result_processor.process_results(resultfields)
