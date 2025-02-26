@@ -1,17 +1,18 @@
 import time
-
-from py_experimenter.experimenter import PyExperimenter
-from py_experimenter.result_processor import ResultProcessor
+import numpy as np
+import json
 import logging
 import pathlib
 
-import matplotlib.pyplot as plt
+from py_experimenter.experimenter import PyExperimenter
+from py_experimenter.result_processor import ResultProcessor
 
-from evalutils import *
+import sys, os
 
-import json
+# load utils from parent folder
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from evalutils import get_performance_curve
 
-import sys
 
 # configure logging
 logger = logging.getLogger("exp")
@@ -52,8 +53,6 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
             eps=eps,
             patience=patience
         )
-        #plt.plot(curve)
-        #plt.show()
     else:
         curve = None
 
@@ -62,8 +61,6 @@ def run_experiment(keyfields: dict, result_processor: ResultProcessor, custom_co
 
     with open(f"results/{openmlid}/{data_seed}_{ensemble_seed}.json", "w") as f:
         json.dump(curve, f)
-
-    # result_processor.process_results(resultfields)
 
     logger.info("Finished")
 

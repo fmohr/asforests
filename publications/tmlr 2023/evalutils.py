@@ -15,7 +15,7 @@ import sklearn
 import sklearn.impute
 import sklearn.preprocessing
 
-import asforests
+from asforests.cb_computer import EnsemblePerformanceAssessor
 from utils_ import *
 
 eval_logger = logging.getLogger("evalutils")
@@ -63,33 +63,27 @@ def get_mandatory_preprocessing(X, y):
         ))]
     else:
         return []
-    
-def get_required_num_trees(prob_history, tree_score_history, eps, alpha):
-    
-    n, k = prob_history[0].shape
-    
-    momenter = Momenter()
-    momenter.add_batch(prob_history, axis=0)
-    moments_over_time = momenter.moments_over_time
-    
-    variances = moments_over_time[1][-1]  # latest estimate for variance
-    m4s = moments_over_time[3][-1]  # latest estimate for 4th moment
-    vbar = variances.sum(axis=1).mean()
-    cbar = np.sqrt(np.maximum(0, m4s - variances ** 2)).sum(axis=1).mean()
-    
-    t = 2  # minimum number of trees, usually one per CPU, at least 2
-    beta = 0.5
-    
-    while True:
-        tau = stats.t.ppf(1 - (1 - beta) * (1 - alpha) / k, df=t-1)
-        kappa = stats.norm.ppf(1 - beta * (1 - alpha))
-        
-        # first criterion: bound on expected regret is smaller than eps.
-        delta = eps - (vbar + tau * cbar / np.sqrt(t)) / t
-        if delta > 0:
-            if kappa * np.sqrt(2 / (n * t)) <= delta:
-                return t   
-        t += 1
+
+
+def get_splitted_data(openmlid, seed_application, seed_training, application_size, validation_size, is_classification):
+    print("Loading dataset")
+    X, y = get_dataset(openmlid)
+    print("Splitting the data")
+    X_inner, X_test, y_inner, y_test = sklearn.model_selection.train_test_split(
+        X,
+        y,
+        random_state=seed_application,
+        stratify=y if is_classification else None,
+        test_size=application_size
+    )
+    X_train, X_val, y_train, y_val = sklearn.model_selection.train_test_split(
+        X_inner,
+        y_inner,
+        random_state=seed_training,
+        stratify=y_inner if is_classification else None,
+        test_size=validation_size
+    )
+    return X_train, X_val, X_test, y_train, y_val, y_test
 
 
 def get_performance_curve(
@@ -110,22 +104,13 @@ def get_performance_curve(
     else:
         ValueError(f"problem_type must be 'classification' or 'regression'")
 
-    print("Loading dataset")
-    X, y = get_dataset(openmlid)
-    print("Splitting the data")
-    X_inner, X_test, y_inner, y_test = sklearn.model_selection.train_test_split(
-        X,
-        y,
-        random_state=data_seed_application,
-        stratify=y if is_classification else None,
-        test_size=0.2
-    )
-    X_train, X_val, y_train, y_val = sklearn.model_selection.train_test_split(
-        X_inner,
-        y_inner,
-        random_state=data_seed_training,
-        stratify=y_inner if is_classification else None,
-        test_size=0.2
+    X_train, X_val, X_test, y_train, y_val, y_test = get_splitted_data(
+        openmlid=openmlid,
+        seed_application=data_seed_application,
+        seed_training=data_seed_training,
+        application_size=0.2,
+        validation_size=0.2,
+        is_classification=is_classification
     )
 
     if is_classification:
@@ -147,7 +132,7 @@ def get_performance_curve(
         eval_logger.info(f"Dataset sizes: {X_train.shape} for training and {X_test.shape} for test data.")
 
     # prepare everything to efficiently compute the brier score
-    labels = list(np.unique(y))
+    labels = list(set(np.unique(y_train)) | set(np.unique(y_val) | set(np.unique(y_test))))
     n, k = len(y_test), len(labels)
     Y_test = np.zeros((n, k))
     for i, true_label in enumerate(y_test):
@@ -169,13 +154,13 @@ def get_performance_curve(
     score_hist = []
     fittime_hist = []
     memory_hist = []
-    step_size = 100 if len(X) < 10 ** 4 else 10
+    step_size = 100 if len(X_train) < 10 ** 4 else 10
 
     while True:
 
         # create new forest (for speed ups)
         eval_logger.info(f"Building {step_size} new trees.")
-        n_jobs = 1 if len(X) < 1000 or step_size < 8 else 8
+        n_jobs = 1 if len(X_train) < 1000 or step_size < 8 else 8
         rf = sklearn.ensemble.RandomForestClassifier(
             n_estimators=step_size,
             random_state=((3 * ensemble_seed) + 13) * (t + 1),
