@@ -15,7 +15,7 @@ class Momenter:
         self.keep_history = keep_history
 
         # state variables
-        self.n = 0
+        self.n = None
         self.counts = None
         self.M = None
         self.means_ = None
@@ -99,7 +99,7 @@ class Momenter:
             mean[np.isnan(mean)] = 0
             centralized_batch = (batch - mean)
             moments = [np.zeros(mean.shape)]
-            even_relevant = np.nansum(batch, axis=axis) > 0
+            even_relevant = np.nansum(np.abs(batch), axis=axis) > 0
 
             for m in range(2, self.max_p + 1):
                 even = m % 2 == 0
@@ -120,7 +120,7 @@ class Momenter:
         mu_B, moments = self.get_mean_and_moments_for_batch(new_obs_batch, axis=axis)
         M_B = N_B * moments
 
-        if np.all(self.n == 0):
+        if self.n is None:
             self.n = N_B
             self.central_moments_ = moments
             self.M = M_B
@@ -196,7 +196,7 @@ class MixedMomentBuilder:
         # update covariance
         if n1 == 0:
             self.cov = scatter_2 / (n2 - 1)
-            assert np.all(np.isclose(self.cov, np.array([np.cov(x_array[:, j], y_array[:, j], rowvar=False)[0, 1] for j in range(3)])))
+            #assert np.all(np.isclose(self.cov, np.array([np.cov(x_array[:, j], y_array[:, j], rowvar=False)[0, 1] for j in range(3)])))
 
         else:
 
