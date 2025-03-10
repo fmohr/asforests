@@ -1,6 +1,3 @@
-config/database_credentials.cfg
-/.codecarbon.config
 logs
 plots
-/result.log
 /experiments.db
