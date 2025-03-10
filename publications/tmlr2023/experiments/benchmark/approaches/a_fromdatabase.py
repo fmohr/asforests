@@ -2,12 +2,20 @@ from .approach import DeviationBasedApproach
 from asforests import EnsemblePerformanceAssessor
 
 
-class DatabaseWoseApproach(DeviationBasedApproach):
+class DatabaseWiseApproach(DeviationBasedApproach):
 
-    def __init__(self, upper_bound_for_sample_size=10**8, population_mode="stream"):
+    def __init__(self, upper_bound_for_sample_size=10**8, population_mode="stream", random_state=None):
+        super().__init__(random_state=random_state)
+        self.upper_bound_for_sample_size = upper_bound_for_sample_size
+        self.population_mode = population_mode
+
+        # state variables
+        self.epa = None
+    
+    def reset(self):
         self.epa = EnsemblePerformanceAssessor(
-            upper_bound_for_sample_size=upper_bound_for_sample_size,
-            population_mode=population_mode,
+            upper_bound_for_sample_size=self.upper_bound_for_sample_size,
+            population_mode=self.population_mode,
             execute_asserts=False
         )
 

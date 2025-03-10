@@ -5,7 +5,8 @@ from time import time
 from sklearn.model_selection import ShuffleSplit, StratifiedShuffleSplit
 from sklearn.ensemble import RandomForestClassifier
 from asforests.cb_computer import EnsemblePerformanceAssessor
-from result_storage import ResultStorage
+
+from experiments.benchmark.result_storage import ResultStorage
 
 
 class Benchmark:
@@ -225,6 +226,7 @@ class Benchmark:
         # register approaches
         self._approaches = approaches
         for approach in self._approaches.values():
+            approach.reset()
             approach.tell_ground_truth_labels(self.y_oh[self._indices_val])
         
         # register check points and compute true values for those checkpoints

@@ -5,9 +5,14 @@ from scipy.stats import bootstrap
 
 class BootstrappingApproach(Approach):
 
-    def __init__(self, num_resamples=10**3):
-        self.prediction_matrices = []
+    def __init__(self, num_resamples=10**3, random_state=None):
+        super().__init__(random_state=random_state)
+        self.prediction_matrices = None
         self.num_resamples = num_resamples
+    
+    def reset(self):
+        super().reset()
+        self.prediction_matrices = []
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
 
@@ -23,11 +28,10 @@ class BootstrappingApproach(Approach):
         if b < 2:
             return np.zeros((len(t), ))
         
-        rs = np.random.RandomState()
         matrices = np.array(self.prediction_matrices)
         means = []
         for size in t:
-            ensemble_definitions = rs.choice(range(b), size=(self.num_resamples, size), replace=True)
+            ensemble_definitions = self.random_state.choice(range(b), size=(self.num_resamples, size), replace=True)
             mean_for_size = []
             for ensemble in ensemble_definitions:
                 mean_prediction = matrices[ensemble].mean(axis=0)

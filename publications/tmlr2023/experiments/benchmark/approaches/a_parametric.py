@@ -6,15 +6,17 @@ from .approach import TheoremBasedApproach
 
 class ParametricModelApproach(TheoremBasedApproach):
 
-    def __init__(self, rs=None, num_simulated_ensembles=1):
+    def __init__(self, rs=None, num_simulated_ensembles=1, random_state=None):
+        super().__init__(random_state=random_state)
 
         # config
-        if rs is None:
-            rs = np.random.RandomState()
-        self.rs = rs
         self.num_simulated_ensembles = num_simulated_ensembles
+        self._deviation_means = self._deviation_vars = self._deviation_covs = None
+    
+    def reset(self):
 
         # state
+        super().reset()
         self.prediction_matrices = []
         self._deviation_means = self._deviation_vars = self._deviation_covs = None
 
@@ -50,7 +52,7 @@ class ParametricModelApproach(TheoremBasedApproach):
         if b < 3:
             self._deviation_means = self._deviation_vars = self._deviation_covs = np.zeros(self.y_oh.shape[1])
             return
-        ensembles = [self.rs.choice(range(b), size=b, replace=False) for i in range(self.num_simulated_ensembles)]
+        ensembles = [self.random_state.choice(range(b), size=b, replace=False) for i in range(self.num_simulated_ensembles)]
 
         # compute data for parametric learning problem
         sizes = []

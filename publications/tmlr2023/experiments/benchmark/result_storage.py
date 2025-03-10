@@ -27,13 +27,22 @@ class ResultStorage:
             }
             for p in self._true_param_values.keys()
         }
+
+        # add known budgets
+        if estimates is not None:
+            for p, estimates_for_p in estimates.items():
+                for a, estimates_for_a in estimates_for_p.items():
+                    for t, estimates_for_t in estimates_for_a.items():
+                        for b in estimates_for_t.keys():
+                            self._budgets.add(b)
+
     
     def serialize(self, f=None):
 
         d = {
-            "true_params": {p: [int(v) for v in l] for p, l in self._true_param_values.items()},
-            "approaches": self._approach_names,
-            "checkpoints": [int(t) for t in self._t_checkpoints],
+            "true_param_values": {p: [int(v) for v in l] for p, l in self._true_param_values.items()},
+            "approach_names": self._approach_names,
+            "t_checkpoints": [int(t) for t in self._t_checkpoints],
             "estimates": self.estimates
         }
 
@@ -45,12 +54,16 @@ class ResultStorage:
 
     @classmethod
     def unserialize(cls, src):
+
+        def convert_keys_to_int(pairs):
+            return {int(k) if k.isdigit() else k: v for k, v in pairs}
         
         if type(src) == str:
             """Convert a JSON string back to an object."""
-            data = json.loads(json_str)
+            data = json.loads(src, object_pairs_hook=convert_keys_to_int)
         else:
-            data = json.load(src)
+            data = json.load(src, object_pairs_hook=convert_keys_to_int)
+        
         return cls(**data)
     
     def add_estimates(self, approach_name, budget, estimates):
@@ -73,7 +86,7 @@ class ResultStorage:
     
     def get_errors_from_approach_for_checkpoint(self, approach_name, t):
         estimates = self.get_estimates_from_approach_for_checkpoint(approach_name=approach_name, t=t)
-        t_index = np.where(self._t_checkpoints == t)[0][0]
+        t_index = self._t_checkpoints.index(t)
         true_values_for_checkpoint = {p: v[t_index] for p, v in self._true_param_values.items()}
         errors = {
             col: estimates[col].apply(lambda e: e - true_values_for_checkpoint[col])

@@ -4,8 +4,16 @@ import numpy as np
 
 class Approach(ABC):
 
-    def __init__(self):
+    def __init__(self, random_state=None):
+        if random_state is None:
+            random_state = np.random.RandomState()
+        self.seed = random_state.randint(low=0, high=10**7)
+        self.random_state = None
         self.y_oh = None
+    
+    def reset(self):
+        self.y_oh = None
+        self.random_state = np.random.RandomState(self.seed)
 
     def tell_ground_truth_labels(self, y_oh):
         self.y_oh = y_oh
@@ -24,6 +32,9 @@ class Approach(ABC):
 
 
 class TheoremBasedApproach(Approach, ABC):
+
+    def __init__(self, random_state=None):
+        super().__init__(random_state)
 
     @property
     @abstractmethod
@@ -52,6 +63,9 @@ class TheoremBasedApproach(Approach, ABC):
 
 
 class DeviationBasedApproach(TheoremBasedApproach):
+
+    def __init__(self, random_state=None):
+        super().__init__(random_state)
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
         dev = prediction_matrix - self.y_oh
