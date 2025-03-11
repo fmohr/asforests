@@ -2,8 +2,15 @@ import numpy as np
 import pandas as pd
 import openml
 from time import time
+
+import logging
+
 from sklearn.model_selection import ShuffleSplit, StratifiedShuffleSplit
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OrdinalEncoder
 from asforests.cb_computer import EnsemblePerformanceAssessor
 
 from experiments.benchmark.result_storage import ResultStorage
@@ -15,7 +22,7 @@ class Benchmark:
                  openmlid,
                  data_seed,
                  ensemble_seed,
-                 application_size,
+                 training_size,
                  validation_size,
                  is_classification
                  ):
@@ -24,11 +31,12 @@ class Benchmark:
         self._openmlid = openmlid
         self._data_seed = data_seed
         self._ensemble_seed = ensemble_seed
-        self._application_size = application_size
+        self._training_size = training_size
         self._validation_size = validation_size
         self._is_classification = is_classification
         self._rs_data = np.random.RandomState(data_seed)
         self._rs_ensemble = np.random.RandomState(ensemble_seed)
+        self.logger = logging.getLogger("benchmark")
 
         # state variables
         self._X = self._y = None
@@ -51,8 +59,8 @@ class Benchmark:
         return self._seed
 
     @property
-    def application_size(self):
-        return self._application_size
+    def training_size(self):
+        return self._training_size
 
     @property
     def validation_size(self):
@@ -137,6 +145,30 @@ class Benchmark:
 
         # TODO: Implement this
         return np.zeros(len(self._t_checkpoints))
+    
+    def _get_mandatory_preprocessing(self, X, y):
+        
+        # determine fixed pre-processing steps for imputation and binarization
+        types = [set([type(v) for v in r]) for r in X.T]
+        numeric_features = [c for c, t in enumerate(types) if len(t) == 1 and list(t)[0] != str]
+        numeric_transformer = Pipeline([("imputer", SimpleImputer(strategy="median"))])
+        categorical_features = [i for i in range(X.shape[1]) if i not in numeric_features]
+        missing_values_per_feature = np.sum(pd.isnull(X), axis=0)
+        self.logger.info(f"There are {len(categorical_features)} categorical features, which will be turned into integers.")
+        self.logger.info(f"Missing values for the different attributes are {missing_values_per_feature}.")
+        if len(categorical_features) > 0 or sum(missing_values_per_feature) > 0:
+            categorical_transformer = Pipeline([
+                ("imputer", SimpleImputer(strategy="most_frequent")),
+                ("binarizer", OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)),
+            ])
+            return [("impute_and_binarize", ColumnTransformer(
+                transformers=[
+                    ("num", numeric_transformer, numeric_features),
+                    ("cat", categorical_transformer, categorical_features),
+                ]
+                ))]
+        else:
+            return []
 
     def _load_data(self):
         """
@@ -166,7 +198,7 @@ class Benchmark:
         # partition the given data into train, validation, and out-of-sample data
         splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.validation_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.validation_size)
         validation_indices, rest_indices = next(splitter_val.split(self.X, self.y))
-        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=self._rs_data, test_size=self.application_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=self._rs_data, test_size=self.application_size)
+        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.training_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.training_size)
         train_indices, oos_indices = next(splitter_rest.split(self.X[rest_indices], self.y[rest_indices]))
         train_indices = rest_indices[train_indices]
         oos_indices = rest_indices[oos_indices]
@@ -175,6 +207,14 @@ class Benchmark:
         self._indices_train = train_indices
         self._indices_val = validation_indices
         self._indices_oos = oos_indices
+
+        # check whether we need to overwrite the data
+        preprocessing = self._get_mandatory_preprocessing(self._X, self._y)
+        if preprocessing:
+            pl = Pipeline(preprocessing)
+            print(f"Modifying inputs with {pl}")
+            pl.fit(self.X_train, self.y_train)
+            self._X = pl.transform(self._X)
 
     def _compute_ground_truth_parameters(self):
 
@@ -260,8 +300,25 @@ class Benchmark:
         matrix = next(self.prediction_matrix_generator)
         self._t += 1
         for approach_name, approach_obj in self._approaches.items():
+            t_0 = time()
             approach_obj.receive_predictions_of_new_ensemble_member(matrix)
-            self._result_storage.add_estimates(approach_name, self.t, {
-                "E[Z_nt]": approach_obj.estimate_performance_mean(self._t_checkpoints),
-                "V[Z_nt]": approach_obj.estimate_performance_var(self._t_checkpoints)
-            })
+            t_1 = time()
+
+            keys_and_methods = {
+                "E[Z_nt]": approach_obj.estimate_performance_mean,
+                "V[Z_nt]": approach_obj.estimate_performance_var,
+            }
+
+
+            estimates = {
+                int(t): {} for t in self._t_checkpoints
+            }
+            runtimes = {"add": int(1000 * (t_1 - t_0))}
+            for p, m in keys_and_methods.items():
+                t0 = time()
+                e = m(self._t_checkpoints)
+                t1 = time()
+                for t, v in zip(self._t_checkpoints, e):
+                    estimates[int(t)][p] = float(v)
+                runtimes[p] = t1 - t0
+            self._result_storage.add_estimates(approach_name, self.t, estimates, runtimes)

@@ -5,7 +5,7 @@ import json
 
 class ResultStorage:
 
-    def __init__(self, true_param_values, approach_names, t_checkpoints, estimates=None):
+    def __init__(self, true_param_values, approach_names, t_checkpoints, estimates=None, runtimes=None):
         for p, v in true_param_values.items():
             if len(v) != len(t_checkpoints):
                 raise ValueError(f"There must be a true value for each parameter value and each checkpoint")
@@ -16,17 +16,15 @@ class ResultStorage:
         self._budgets = set()
 
         # self.estimates[p][a][t][b] will contain the estimate for parameter p obtained from approach a for ensemble size t when b ensembles were trained (budget)
-        self.estimates = {
-            p: {
-                a: {
-                    t_c: estimates[p][a][t_o] if estimates is not None and p in estimates and a in estimates[p] and t_o in estimates[p][a]
-                    else {}
-                    for t_c, t_o in zip(self._t_checkpoints, t_checkpoints)
-                }
-                for a in approach_names
-            }
-            for p in self._true_param_values.keys()
-        }
+        self.estimates = {}
+        self.runtimes = {}
+        for a in approach_names:
+            self.estimates[a] = {}
+            self.runtimes[a] = {}
+            
+            if estimates is not None:
+                for b in estimates[a]:
+                    self.add_estimates(approach_name=a, budget=b, estimates=estimates[a][b], runtimes=runtimes[a][b])
 
         # add known budgets
         if estimates is not None:
@@ -66,23 +64,32 @@ class ResultStorage:
         
         return cls(**data)
     
-    def add_estimates(self, approach_name, budget, estimates):
-        self._budgets.add(budget)
-        for col, val in estimates.items():
-            assert isinstance(val, list) or isinstance(val, np.ndarray), f"Expected a list or numpy array for {col}, but {approach_name} returned {type(val)}"
-            assert len(val) == len(self._t_checkpoints), f"Expected {len(self._t_checkpoints)} values for {col}, but {approach_name} returned {len(val)}"
-            for t, v in zip(self._t_checkpoints, val):
-                self.estimates[col][approach_name][t][budget] = float(v)
+    def add_estimates(self, approach_name, budget, estimates_per_checkpoint, runtimes):
+        
+        if budget not in self._budgets:
+            self.estimates[approach_name][budget] = {}
+            self.runtimes[approach_name][budget] = {}
+            self._budgets.add(budget)
+
+        if budget not in self.estimates[approach_name]:
+            self.estimates[approach_name][budget] = {}
+
+        assert len(estimates_per_checkpoint) == len(self._t_checkpoints), f"Expected a dictionary with {len(self._t_checkpoints)} entries, one for each check point, but received {len(estimates_per_checkpoint)}"
+        for t, estimates_for_t in estimates_per_checkpoint.items():                
+            if t not in self.estimates[approach_name][budget]:
+                self.estimates[approach_name][budget][t] = {}
+            for p, e in estimates_for_t.items():
+                self.estimates[approach_name][budget][t][p] = float(e)
+        
+        self.runtimes[approach_name][budget] = runtimes
     
     def get_estimates_from_approach_for_checkpoint(self, approach_name, t):
-        results = {}
-        index = list(range(1, max(self._budgets) + 1))
-        for param, estimates_for_param in self.estimates.items():
-            results[param] = []
-            for b in index:
-                has_entry = b in estimates_for_param[approach_name][t]
-                results[param].append(estimates_for_param[approach_name][t][b]) if has_entry else np.nan
-        return pd.DataFrame(results, index=index)
+        results = []
+        budgets = []
+        for budget, estimates_for_budget in self.estimates[approach_name].items():
+            budgets.append(budget)
+            results.append(estimates_for_budget[t])
+        return pd.DataFrame(results, index=budgets)
     
     def get_errors_from_approach_for_checkpoint(self, approach_name, t):
         estimates = self.get_estimates_from_approach_for_checkpoint(approach_name=approach_name, t=t)

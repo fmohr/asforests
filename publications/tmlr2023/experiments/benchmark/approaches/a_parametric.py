@@ -6,11 +6,12 @@ from .approach import TheoremBasedApproach
 
 class ParametricModelApproach(TheoremBasedApproach):
 
-    def __init__(self, rs=None, num_simulated_ensembles=1, random_state=None):
+    def __init__(self, num_simulated_ensembles=1, with_replacement=False, random_state=None):
         super().__init__(random_state=random_state)
 
         # config
         self.num_simulated_ensembles = num_simulated_ensembles
+        self.with_replacement = with_replacement
         self._deviation_means = self._deviation_vars = self._deviation_covs = None
     
     def reset(self):
@@ -52,7 +53,7 @@ class ParametricModelApproach(TheoremBasedApproach):
         if b < 3:
             self._deviation_means = self._deviation_vars = self._deviation_covs = np.zeros(self.y_oh.shape[1])
             return
-        ensembles = [self.random_state.choice(range(b), size=b, replace=False) for i in range(self.num_simulated_ensembles)]
+        ensembles = [self.random_state.choice(range(b), size=b, replace=self.with_replacement) for _ in range(self.num_simulated_ensembles)]
 
         # compute data for parametric learning problem
         sizes = []

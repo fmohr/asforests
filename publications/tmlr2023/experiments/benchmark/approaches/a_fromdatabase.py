@@ -4,7 +4,7 @@ from asforests import EnsemblePerformanceAssessor
 
 class DatabaseWiseApproach(DeviationBasedApproach):
 
-    def __init__(self, upper_bound_for_sample_size=10**8, population_mode="stream", random_state=None):
+    def __init__(self, upper_bound_for_sample_size=10**6, population_mode="stream", random_state=None):
         super().__init__(random_state=random_state)
         self.upper_bound_for_sample_size = upper_bound_for_sample_size
         self.population_mode = population_mode
