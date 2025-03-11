@@ -16,8 +16,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     openmlid = int(keyfields["openmlid"])
     data_seed = 0
     ensemble_seed = int(keyfields["ensemble_seed"])
-    training_size = 50
-    validation_size = 20
+    training_size = 500
+    validation_size = 300
 
     b = Benchmark(
         openmlid=openmlid,
