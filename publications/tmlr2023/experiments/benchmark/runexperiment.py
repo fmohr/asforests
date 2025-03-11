@@ -6,6 +6,8 @@ from py_experimenter.experimenter import PyExperimenter
 
 import pathlib
 import sys
+import time
+import numpy as np
 
 
 ACCEPTED_APPROACHES = ["bootstrapping", "databaseperparameter", "parametricmodel"]
@@ -69,6 +71,9 @@ if __name__ == "__main__":
     if approach not in ACCEPTED_APPROACHES:
         raise ValueError(f"Please specify a valid approach (one of {ACCEPTED_APPROACHES}).")
     print(f"Evaluated approach is: {approach}")
+    sleep_time = np.random.rand() * 10
+    print(f"Sleeping {sleep_time}s")
+    time.sleep(sleep_time)
 
     pe = PyExperimenter(
         name=name,
