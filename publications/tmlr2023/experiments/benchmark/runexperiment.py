@@ -71,7 +71,7 @@ if __name__ == "__main__":
     if approach not in ACCEPTED_APPROACHES:
         raise ValueError(f"Please specify a valid approach (one of {ACCEPTED_APPROACHES}).")
     print(f"Evaluated approach is: {approach}")
-    sleep_time = np.random.rand() * 10
+    sleep_time = np.random.rand() * 30
     print(f"Sleeping {sleep_time}s")
     time.sleep(sleep_time)
 
