@@ -62,14 +62,16 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        raise ValueError(f"Please specify exactly one argument (for the approach).")
-    approach = sys.argv[1]
+    if len(sys.argv) != 3:
+        raise ValueError(f"Please specify exactly two arguments (the job name and the approach).")
+    name = sys.argv[1]
+    approach = sys.argv[2]
     if approach not in ACCEPTED_APPROACHES:
         raise ValueError(f"Please specify a valid approach (one of {ACCEPTED_APPROACHES}).")
     print(f"Evaluated approach is: {approach}")
 
     pe = PyExperimenter(
+        name=name,
         use_codecarbon=False,
         experiment_configuration_file_path=f"config/{approach}.yaml"
         )
