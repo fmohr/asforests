@@ -16,15 +16,16 @@ class ResultStorage:
         self._budgets = set()
 
         # self.estimates[p][a][t][b] will contain the estimate for parameter p obtained from approach a for ensemble size t when b ensembles were trained (budget)
-        self.estimates = {}
-        self.runtimes = {}
+        self._estimates = {}
+        self._runtimes = {}
         for a in approach_names:
-            self.estimates[a] = {}
-            self.runtimes[a] = {}
+            self._estimates[a] = {}
+            self._runtimes[a] = {}
             
             if estimates is not None:
+                assert runtimes is not None, "if estimates are given, runtimes must not be None"
                 for b in estimates[a]:
-                    self.add_estimates(approach_name=a, budget=b, estimates=estimates[a][b], runtimes=runtimes[a][b])
+                    self.add_estimates(approach_name=a, budget=b, estimates_per_checkpoint=estimates[a][b], runtimes=runtimes[a][b])
 
         # add known budgets
         if estimates is not None:
@@ -34,6 +35,21 @@ class ResultStorage:
                         for b in estimates_for_t.keys():
                             self._budgets.add(b)
 
+    @property
+    def true_param_values(self):
+        return self._true_param_values
+    
+    @property
+    def approach_names(self):
+        return self._approach_names
+    
+    @property
+    def t_checkpoints(self):
+        return self._t_checkpoints
+    
+    @property
+    def budgets(self):
+        return self._budgets
     
     def serialize(self, f=None):
 
@@ -41,7 +57,8 @@ class ResultStorage:
             "true_param_values": {p: [int(v) for v in l] for p, l in self._true_param_values.items()},
             "approach_names": self._approach_names,
             "t_checkpoints": [int(t) for t in self._t_checkpoints],
-            "estimates": self.estimates
+            "estimates": self._estimates,
+            "runtimes": self._runtimes
         }
 
         if f is None:
@@ -67,26 +84,26 @@ class ResultStorage:
     def add_estimates(self, approach_name, budget, estimates_per_checkpoint, runtimes):
         
         if budget not in self._budgets:
-            self.estimates[approach_name][budget] = {}
-            self.runtimes[approach_name][budget] = {}
+            self._estimates[approach_name][budget] = {}
+            self._runtimes[approach_name][budget] = {}
             self._budgets.add(budget)
 
-        if budget not in self.estimates[approach_name]:
-            self.estimates[approach_name][budget] = {}
+        if budget not in self._estimates[approach_name]:
+            self._estimates[approach_name][budget] = {}
 
         assert len(estimates_per_checkpoint) == len(self._t_checkpoints), f"Expected a dictionary with {len(self._t_checkpoints)} entries, one for each check point, but received {len(estimates_per_checkpoint)}"
         for t, estimates_for_t in estimates_per_checkpoint.items():                
-            if t not in self.estimates[approach_name][budget]:
-                self.estimates[approach_name][budget][t] = {}
+            if t not in self._estimates[approach_name][budget]:
+                self._estimates[approach_name][budget][t] = {}
             for p, e in estimates_for_t.items():
-                self.estimates[approach_name][budget][t][p] = float(e)
+                self._estimates[approach_name][budget][t][p] = float(e)
         
-        self.runtimes[approach_name][budget] = runtimes
+        self._runtimes[approach_name][budget] = runtimes
     
     def get_estimates_from_approach_for_checkpoint(self, approach_name, t):
         results = []
         budgets = []
-        for budget, estimates_for_budget in self.estimates[approach_name].items():
+        for budget, estimates_for_budget in self._estimates[approach_name].items():
             budgets.append(budget)
             results.append(estimates_for_budget[t])
         return pd.DataFrame(results, index=budgets)
