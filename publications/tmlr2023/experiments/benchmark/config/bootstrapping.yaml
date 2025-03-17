@@ -6,7 +6,7 @@ PY_EXPERIMENTER:
     database: bootstrapping_experiments
     use_ssh_tunnel: False
     table:
-      name: estimation_experiments_bootstrapping
+      name: estimation_experiments
       keyfields:
         openmlid:
           type: INT
