@@ -54,7 +54,7 @@ class ResultStorage:
     def serialize(self, f=None):
 
         d = {
-            "true_param_values": {p: [int(v) for v in l] for p, l in self._true_param_values.items()},
+            "true_param_values": {p: [v for v in l] for p, l in self._true_param_values.items()},
             "approach_names": self._approach_names,
             "t_checkpoints": [int(t) for t in self._t_checkpoints],
             "estimates": self._estimates,

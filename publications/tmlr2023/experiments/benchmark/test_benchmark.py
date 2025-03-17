@@ -171,7 +171,7 @@ class TestBenchmark(TestCase):
             "parametric model": ParametricModelApproach(num_simulated_ensembles=100)
         }
 
-                # run benchmark twice for 10 iterations (10 ensemble members)
+        # run benchmark twice for 10 iterations (10 ensemble members)
         b.reset(approaches, t_checkpoints=t_checkpoints)
         for _ in tqdm(range(10**1)):
             b.step()
@@ -179,11 +179,13 @@ class TestBenchmark(TestCase):
         # test that the unserialized serialized result storage has the same state as the fresh result storage.
         storage = b.result_storage
         recovered_storage = ResultStorage.unserialize(storage.serialize())
-        for i, (v1, v2) in enumerate(zip(storage.true_param_values, recovered_storage._true_param_values)):
-            self.assertEqual(v1, v2)
-        for i, (v1, v2) in enumerate(zip(storage.approach_names, recovered_storage.approach_names)):
-            self.assertEqual(v1, v2)
         for i, (v1, v2) in enumerate(zip(storage.t_checkpoints, recovered_storage.t_checkpoints)):
+            self.assertEqual(v1, v2)
+        for k in storage.true_param_values:
+            self.assertTrue(k in recovered_storage.true_param_values)
+            for t, v1, v2 in zip(storage.t_checkpoints, storage.true_param_values[k], recovered_storage.true_param_values[k]):
+                self.assertEqual(v1, v2)
+        for i, (v1, v2) in enumerate(zip(storage.approach_names, recovered_storage.approach_names)):
             self.assertEqual(v1, v2)
         self.assertDictEqual(storage._estimates, recovered_storage._estimates)
         self.assertDictEqual(storage._runtimes, recovered_storage._runtimes)
