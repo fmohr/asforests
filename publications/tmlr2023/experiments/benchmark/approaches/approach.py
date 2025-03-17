@@ -7,6 +7,8 @@ class Approach(ABC):
     def __init__(self, random_state=None):
         if random_state is None:
             random_state = np.random.RandomState()
+        if isinstance(random_state, int):
+            random_state = np.random.RandomState(random_state)
         self.seed = random_state.randint(low=0, high=10**7)
         self.random_state = None
         self.y_oh = None

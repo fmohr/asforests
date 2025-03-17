@@ -13,6 +13,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
         self.epa = None
     
     def reset(self):
+        super().reset()
         self.epa = EnsemblePerformanceAssessor(
             upper_bound_for_sample_size=self.upper_bound_for_sample_size,
             population_mode=self.population_mode,

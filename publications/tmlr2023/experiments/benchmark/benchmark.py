@@ -22,6 +22,8 @@ class Benchmark:
                  openmlid,
                  data_seed,
                  ensemble_seed,
+                 ensemble_sequence_seed,
+                 num_possible_ensemble_members,
                  training_size,
                  validation_size,
                  is_classification
@@ -31,11 +33,11 @@ class Benchmark:
         self._openmlid = openmlid
         self._data_seed = data_seed
         self._ensemble_seed = ensemble_seed
+        self._ensemble_sequence_seed = ensemble_sequence_seed
+        self._num_possible_ensemble_members = num_possible_ensemble_members
         self._training_size = training_size
         self._validation_size = validation_size
         self._is_classification = is_classification
-        self._rs_data = np.random.RandomState(data_seed)
-        self._rs_ensemble = np.random.RandomState(ensemble_seed)
         self.logger = logging.getLogger("benchmark")
 
         # state variables
@@ -55,8 +57,8 @@ class Benchmark:
         return self._openmlid
 
     @property
-    def seed(self):
-        return self._seed
+    def data_seed(self):
+        return self._data_seed
 
     @property
     def training_size(self):
@@ -108,7 +110,7 @@ class Benchmark:
 
     @property
     def deviation_means_val(self):
-        return self._deviations[:, self._indices_val].mean(axis=(0, 1))
+        return self._deviations[:, self._indices_val].mean(axis=0)
 
     @property
     def deviation_vars(self):
@@ -119,7 +121,7 @@ class Benchmark:
         """
         :return: the array V[D^1_1 | validation data] with one entry for each label
         """
-        return self._deviations[:, self._indices_val].var(axis=(0, 1))
+        return self._deviations[:, self._indices_val].var(axis=0)
 
     @property
     def deviation_covs_val(self):
@@ -137,14 +139,25 @@ class Benchmark:
     def result_storage(self):
         return self._result_storage
 
-    def get_true_performance_mean_on_val_data(self):
+    def get_true_performance_mean_on_iid_data(self):
         t = self._t_checkpoints
         return np.sum(self.deviation_means_val ** 2) + np.sum(self.deviation_vars_val) / t + (1 - 1/t) * np.sum(self.deviation_covs_val)
+    
+    def get_true_performance_mean_on_conditioned_data(self, instance_indices):
+        t = self._t_checkpoints
+        term1 = (self._deviations[:, instance_indices].mean(axis=0)**2).mean(axis=0).sum(axis=0)
+        term2 = (self._deviations[:, instance_indices].var(axis=0).mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
+        return term1 + term2
 
-    def get_true_performance_var_on_val_data(self):
+    def get_true_performance_var_on_iid_data(self):
 
         # TODO: Implement this
-        return np.zeros(len(self._t_checkpoints))
+        return np.ones(len(self._t_checkpoints)) * (1 + self.data_seed) * (1 + self._ensemble_seed)
+    
+    def get_true_performance_var_on_conditioned_data(self, instance_indices):
+
+        # TODO: Implement this
+        return np.ones(len(self._t_checkpoints)) * (1 + self.data_seed) * (1 + self._ensemble_seed)
     
     def _get_mandatory_preprocessing(self, X, y):
         
@@ -196,9 +209,10 @@ class Benchmark:
             self._y = y_int
 
         # partition the given data into train, validation, and out-of-sample data
-        splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.validation_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.validation_size)
+        rs_data = np.random.RandomState(self._data_seed)
+        splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size)
         validation_indices, rest_indices = next(splitter_val.split(self.X, self.y))
-        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.training_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=self._rs_data, train_size=self.training_size)
+        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.training_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.training_size)
         train_indices, oos_indices = next(splitter_rest.split(self.X[rest_indices], self.y[rest_indices]))
         train_indices = rest_indices[train_indices]
         oos_indices = rest_indices[oos_indices]
@@ -227,7 +241,10 @@ class Benchmark:
         t_start = time()
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
-        rf = RandomForestClassifier(n_estimators=10**2, random_state=self._rs_ensemble).fit(self.X_train, self.y_train)
+        rf = RandomForestClassifier(
+            n_estimators=self._num_possible_ensemble_members,
+            random_state=self._ensemble_seed
+            ).fit(self.X_train, self.y_train)
         ensemble_members = list(rf)
         classes_ = list(rf.classes_)
         indices = [classes_.index(i) for i in self.y]
@@ -248,18 +265,20 @@ class Benchmark:
         print(f"Ground truth computation finished after {int(1000 * (time() - t_start))}ms.")
     
     
-    def reset(self, approaches: dict, t_checkpoints: list):
+    def reset(self, approaches: dict, t_checkpoints: list, ensemble_sequence_seed: int = None):
 
         # initialize deviations if this has not happned yet
         if self._deviations is None:
             self._load_data()
             self._compute_ground_truth_parameters()
         
-        # create prediction matrix generator
-        rs = np.random.RandomState(self._ensemble_seed)
+        # create/reset prediction matrix generator
+        if ensemble_sequence_seed is not None:
+            self._ensemble_sequence_seed = ensemble_sequence_seed
+        deviation_generator_rs = np.random.RandomState(self._ensemble_sequence_seed)
         def f():
             while True:
-                yield self._predictions[rs.choice(range(len(self._deviations))), self._indices_val]
+                yield self._predictions[deviation_generator_rs.choice(range(len(self._deviations))), self._indices_val]
 
         self._prediction_matrix_generator = f()
 
@@ -278,8 +297,8 @@ class Benchmark:
             raise ValueError(f"t_checkpoints must be an integer, a list of integers, or a np array of type int but is {type(t_checkpoints)}")
         self._t_checkpoints = t_checkpoints
         self._true_parameters = {
-            "E[Z_nt]": self.get_true_performance_mean_on_val_data(),
-            "V[Z_nt]": self.get_true_performance_var_on_val_data()
+            "E[Z_nt|D_val]": self.get_true_performance_mean_on_conditioned_data(instance_indices=self._indices_val),
+            "V[Z_nt|D_val]": self.get_true_performance_var_on_conditioned_data(instance_indices=self._indices_val)
         }
 
         # reset storage
@@ -305,10 +324,9 @@ class Benchmark:
             t_1 = time()
 
             keys_and_methods = {
-                "E[Z_nt]": approach_obj.estimate_performance_mean,
-                "V[Z_nt]": approach_obj.estimate_performance_var,
+                "E[Z_nt|D_val]": approach_obj.estimate_performance_mean,
+                "V[Z_nt|D_val]": approach_obj.estimate_performance_var,
             }
-
 
             estimates = {
                 int(t): {} for t in self._t_checkpoints
