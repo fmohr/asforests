@@ -16,13 +16,16 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     openmlid = int(keyfields["openmlid"])
     data_seed = 0
     ensemble_seed = int(keyfields["ensemble_seed"])
+    num_possible_ensemble_members=100
     training_size = 500
     validation_size = 300
 
     b = Benchmark(
         openmlid=openmlid,
         data_seed=data_seed,
-        ensemble_seed=ensemble_seed,
+        ensemble_seed=data_seed,
+        ensemble_sequence_seed=ensemble_seed,
+        num_possible_ensemble_members=num_possible_ensemble_members,
         training_size=training_size,
         validation_size=validation_size,
         is_classification=True
