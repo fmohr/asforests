@@ -324,8 +324,8 @@ class Benchmark:
             t_1 = time()
 
             keys_and_methods = {
-                "E[Z_nt|D_val]": approach_obj.estimate_performance_mean,
-                "V[Z_nt|D_val]": approach_obj.estimate_performance_var,
+                "E[Z_nt|D_val]": approach_obj.estimate_performance_mean_in_conditional_setup,
+                "V[Z_nt|D_val]": approach_obj.estimate_performance_var_in_conditional_setup
             }
 
             estimates = {

@@ -129,11 +129,11 @@ class TestBenchmark(TestCase):
             self.assertEqual(gt, gt_according_to_benchmark)
 
     @parameterized.expand([
-        ("bootstrapping", BootstrappingApproach(num_resamples=1)),
+        ("bootstrapping", BootstrappingApproach(random_state=0, num_resamples=100)),
         ("theorem with datasets", DatabaseWiseApproach(upper_bound_for_sample_size=10**10)),
-        ("parametric model", ParametricModelApproach(num_simulated_ensembles=100))
+        ("parametric model", ParametricModelApproach(num_simulated_ensembles=8))
     ])
-    def test_approach_functionality(self, a_name, a_obj):
+    def test_approach_functionality_in_conditional_setting(self, a_name, a_obj):
         openmlid = 61
         data_seed = 0
         ensemble_seed = 0
@@ -157,14 +157,22 @@ class TestBenchmark(TestCase):
 
         # run benchmark twice for 10 iterations (10 ensemble members)
         b.reset({a_name: a_obj}, t_checkpoints=t_checkpoints)
-        num_steps = 10**1
+        num_steps = 10**2
         for _ in tqdm(range(num_steps)):
             b.step()
+        
+        # check that reasonable estimates have been given
+        estimates = a_obj.estimate_performance_mean_in_conditional_setup(t_checkpoints)
+        for i, e in enumerate(estimates):
+            self.assertTrue(e > 0)
+            self.assertTrue(e < 1)
+            if i > 0:
+                self.assertTrue(e < estimates[i-1])  # check monotonicity
 
     @parameterized.expand([
         ("bootstrapping", BootstrappingApproach(num_resamples=1)),
         ("theorem with datasets", DatabaseWiseApproach(upper_bound_for_sample_size=10**10)),
-        ("parametric model", ParametricModelApproach(num_simulated_ensembles=100))
+        ("parametric model", ParametricModelApproach(num_simulated_ensembles=8))
     ])
     def test_result_extraction(self, a_name, a_obj):
         openmlid = 61
@@ -190,7 +198,7 @@ class TestBenchmark(TestCase):
 
         # run benchmark twice for 10 iterations (10 ensemble members)
         b.reset({a_name: a_obj}, t_checkpoints=t_checkpoints)
-        num_steps = 10**1
+        num_steps = 10**2
         for _ in tqdm(range(num_steps)):
             b.step()
         

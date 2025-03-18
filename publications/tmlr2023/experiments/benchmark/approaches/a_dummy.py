@@ -18,8 +18,12 @@ class DummyApproach(Approach):
         # add prediction matrix
         self.prediction_matrices.append(prediction_matrix)
 
-    def estimate_performance_mean(self, t):
+    def estimate_performance_mean_in_iid_setup(self, t):
 
+        # how would we estimate i.i.d.?
+        return self.estimate_performance_mean_in_conditional_setup(t)
+
+    def estimate_performance_mean_in_conditional_setup(self, t):
         if isinstance(t, int):
             t = [t]
         
@@ -30,5 +34,10 @@ class DummyApproach(Approach):
             means.append((mean_deviation**2).mean(axis=0).sum())
         return np.array(means)
 
-    def estimate_performance_var(self, t):
+    def estimate_performance_var_in_iid_setup(self, t):
+        
+        # how would we estimate i.i.d.?
+        return self.estimate_performance_var_in_conditional_setup(t)
+
+    def estimate_performance_var_in_conditional_setup(self, t):
         return np.zeros((len(t), ))

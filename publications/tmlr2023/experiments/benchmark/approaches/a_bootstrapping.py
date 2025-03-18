@@ -19,8 +19,12 @@ class BootstrappingApproach(Approach):
         # add prediction matrix
         self.prediction_matrices.append(prediction_matrix)
 
-    def estimate_performance_mean(self, t):
+    def estimate_performance_mean_in_iid_setup(self, t):
 
+        # i.i.d. estimate even possible???
+        return self.estimate_performance_mean_in_conditional_setup(t)
+
+    def estimate_performance_mean_in_conditional_setup(self, t):
         if isinstance(t, int):
             t = [t]
 
@@ -39,7 +43,10 @@ class BootstrappingApproach(Approach):
             means.append(np.mean(mean_for_size))
         return np.array(means)
 
+    def estimate_performance_var_in_iid_setup(self, t):
 
+        # i.i.d. estimate even possible???
+        return self.estimate_performance_var_in_conditional_setup(t)
 
-    def estimate_performance_var(self, t):
+    def estimate_performance_var_in_conditional_setup(self, t):
         return np.zeros((len(t), ))
