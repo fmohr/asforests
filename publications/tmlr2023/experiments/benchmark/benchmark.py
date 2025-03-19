@@ -239,18 +239,18 @@ class Benchmark:
         preprocessing = self._get_mandatory_preprocessing(self._X, self._y)
         if preprocessing:
             pl = Pipeline(preprocessing)
-            print(f"Modifying inputs with {pl}")
+            self.logger.info(f"Modifying inputs with {pl}")
             pl.fit(self.X_train, self.y_train)
             self._X = pl.transform(self._X)
 
     def _compute_ground_truth_parameters(self):
 
         if self._means is not None:
-            print(f"Warning: ground truth has already been computed, skipping.")
+            self.logger.info(f"Warning: ground truth has already been computed, skipping.")
             return
         
         # send log message
-        print(f"Computing ground truth parameter values.")
+        self.logger.info(f"Computing ground truth parameter values.")
         t_start = time()
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
@@ -279,7 +279,7 @@ class Benchmark:
 
         #assert np.all(np.isclose(self._means, epa.gap_mean_point))
         #assert np.all(np.isclose(self._vars, epa.gap_var_point))
-        print(f"Ground truth computation finished after {int(1000 * (time() - t_start))}ms.")
+        self.logger.info(f"Ground truth computation finished after {int(1000 * (time() - t_start))}ms.")
     
     
     def reset(self, approaches: dict, t_checkpoints: list, ensemble_sequence_seed: int = None):
@@ -337,7 +337,9 @@ class Benchmark:
         # update knowledge of all approaches
         matrix = next(self.prediction_matrix_generator)
         self._t += 1
+        self.logger.info(f"Starting round {self._t}")
         for approach_name, approach_obj in self._approaches.items():
+            self.logger.debug(f"Stepping {approach_name}.")
             t_0 = time()
             approach_obj.receive_predictions_of_new_ensemble_member(matrix)
             t_1 = time()
@@ -359,5 +361,6 @@ class Benchmark:
                 t1 = time()
                 for t, v in zip(self._t_checkpoints, e):
                     estimates[int(t)][p] = float(v)
-                runtimes[p] = t1 - t0
+                runtimes[p] = int(1000 * (t1 - t0))
+            self.logger.debug(f"Stepped {approach_name}. Runtimes: {runtimes}")
             self._result_storage.add_estimates(approach_name, self.t, estimates, runtimes)

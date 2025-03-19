@@ -1,6 +1,8 @@
 from benchmark import Benchmark
 from approaches import DatabaseWiseApproach, BootstrappingApproach, ParametricModelApproach
 
+import logging
+
 from tqdm import tqdm
 from py_experimenter.experimenter import PyExperimenter
 
@@ -49,10 +51,23 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         "model free - resample_with_replacement": DatabaseWiseApproach(population_mode="resample_with_replacement")
     }
     
+    # define stream handler
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+
+    # configure logger
+    log_level = logging.DEBUG
+    logger = logging.getLogger("benchmark")
+    logger.handlers.clear()
+    logger.addHandler(ch)
+    ch.setLevel(log_level)
+    logger.setLevel(log_level)
+    
     # run benchmark for 10 iterations (10 ensemble members)
     print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_sequence_seed}")
     b.reset(approaches, t_checkpoints=t_checkpoints)
-    for _ in tqdm(range(10**4)):
+    for _ in tqdm(range(10**3)):
         b.step()
     
     folder = f"results/"
