@@ -57,7 +57,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     ch.setFormatter(formatter)
 
     # configure logger
-    log_level = logging.DEBUG
+    log_level = logging.WARN
     logger = logging.getLogger("benchmark")
     logger.handlers.clear()
     logger.addHandler(ch)
