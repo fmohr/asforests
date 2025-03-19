@@ -165,9 +165,13 @@ class EnsemblePerformanceAssessor:
             if self.estimate_deviation_covs and len(self.deviation_matrices) > 1:
 
                 num_possible_entries = self.n * int(binom(self.t, 2))
-                if self.population_mode == "resample_no_replacement" and num_possible_entries < self.upper_bound_for_sample_size:
+                if self.population_mode == "resample_no_replacement":
+                    cnt = 0
                     for dm1, dm2 in it.combinations(self.deviation_matrices, 2):
                         self.mixed_moment_builder.add_observations(dm1, dm2, axis=0)
+                        cnt += 1
+                        if cnt >= self.upper_bound_for_sample_size:
+                            break
                 elif self.population_mode == "resample_with_replacement":
                     instance_indices = self.rs.choice(range(self.n), size=self.upper_bound_for_sample_size, replace=True)
                     possible_pairs = list(it.combinations(range(len(self.deviation_matrices)), 2))
@@ -184,6 +188,6 @@ class EnsemblePerformanceAssessor:
                         col2.append(self.deviation_matrices[possible_pairs[i_pair][1]][i_instance])
                     self.mixed_moment_builder.add_observations(np.array(col1), np.array(col2), axis=0)
                 else:
-                    raise ValueError("Uncovered case!")
+                    raise ValueError(f"Uncovered case for population mode: {self.population_mode}")
 
         #print(f"Added batch in {int(1000 * (time.time() - start))}ms.")
