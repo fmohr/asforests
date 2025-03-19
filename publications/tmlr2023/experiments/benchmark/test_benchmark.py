@@ -16,7 +16,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 50
+        training_instances_per_class = 50
         validation_size = 20
 
         b = Benchmark(
@@ -25,7 +25,7 @@ class TestBenchmark(TestCase):
             ensemble_seed=ensemble_seed,
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True
         )
@@ -45,7 +45,7 @@ class TestBenchmark(TestCase):
                 ensemble_seed=0,
                 ensemble_sequence_seed=ensemble_seed,
                 num_possible_ensemble_members=5,
-                training_size=10,
+                training_instances_per_class=10,
                 validation_size=10,
                 is_classification=True
             )
@@ -66,7 +66,7 @@ class TestBenchmark(TestCase):
                 ensemble_seed=ensemble_seed,
                 ensemble_sequence_seed=0,
                 num_possible_ensemble_members=5,
-                training_size=10,
+                training_instances_per_class=10,
                 validation_size=10,
                 is_classification=True
             )
@@ -87,7 +87,7 @@ class TestBenchmark(TestCase):
                 ensemble_seed=0,
                 ensemble_sequence_seed=0,
                 num_possible_ensemble_members=5,
-                training_size=10,
+                training_instances_per_class=10,
                 validation_size=10,
                 is_classification=True
             )
@@ -104,7 +104,7 @@ class TestBenchmark(TestCase):
         openmlid = 61
         data_seed = 0
         ensemble_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -114,7 +114,7 @@ class TestBenchmark(TestCase):
             ensemble_sequence_seed=None,
             num_possible_ensemble_members=10,
             validation_size=validation_size,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             is_classification=True
         )
         t_domain = np.arange(1, 21)
@@ -133,7 +133,7 @@ class TestBenchmark(TestCase):
         openmlid = 61
         data_seed = 0
         ensemble_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -143,7 +143,7 @@ class TestBenchmark(TestCase):
             ensemble_sequence_seed=None,
             num_possible_ensemble_members=10,
             validation_size=validation_size,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             is_classification=True
         )
         t_domain = np.arange(1, 21)
@@ -176,7 +176,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -185,7 +185,7 @@ class TestBenchmark(TestCase):
             ensemble_seed=ensemble_seed,
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True
         )
@@ -217,7 +217,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -226,7 +226,7 @@ class TestBenchmark(TestCase):
             ensemble_seed=ensemble_seed,
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True
         )
@@ -258,7 +258,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -268,7 +268,7 @@ class TestBenchmark(TestCase):
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
             validation_size=validation_size,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             is_classification=True
         )
 
@@ -294,7 +294,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -303,7 +303,7 @@ class TestBenchmark(TestCase):
             ensemble_seed=ensemble_seed,
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True
         )
@@ -343,7 +343,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -352,7 +352,7 @@ class TestBenchmark(TestCase):
             ensemble_seed=ensemble_seed,
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True
         )
@@ -390,7 +390,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -399,7 +399,7 @@ class TestBenchmark(TestCase):
             ensemble_seed=ensemble_seed,
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True
         )
@@ -444,7 +444,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         ensemble_sequence_seed = 0
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 20
 
         b = Benchmark(
@@ -454,7 +454,7 @@ class TestBenchmark(TestCase):
             ensemble_sequence_seed=ensemble_sequence_seed,
             num_possible_ensemble_members=5,
             validation_size=validation_size,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             is_classification=True
         )
 
@@ -495,7 +495,7 @@ class TestBenchmark(TestCase):
         data_seed = 0
         ensemble_seed = 0
         num_possible_ensemble_members = 2
-        training_size = 10
+        training_instances_per_class = 10
         validation_size = 5
         n_estimators = 10**4
 
@@ -509,7 +509,7 @@ class TestBenchmark(TestCase):
             ensemble_sequence_seed=None,
             num_possible_ensemble_members=num_possible_ensemble_members,
             validation_size=validation_size,
-            training_size=training_size,
+            training_instances_per_class=training_instances_per_class,
             is_classification=True
         )
 
