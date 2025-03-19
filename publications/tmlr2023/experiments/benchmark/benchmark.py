@@ -217,7 +217,7 @@ class Benchmark:
 
         # partition the given data into train, validation, and out-of-sample data
         self.logger.info(f"Label count: {label_count}")
-        minority_class = min(list(label_count.keys()), key=label_count)
+        minority_class = min(list(label_count.keys()), key=label_count.get)
 
         training_size_relative = self.training_instances_per_class / label_count[minority_class]
         self.logger.info(f"Using {np.round(training_size_relative * 100, 2)}% of the  data for training")
