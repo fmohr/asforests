@@ -18,8 +18,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     ensemble_sequence_seed = int(keyfields["ensemble_sequence_seed"])
     num_possible_ensemble_members = int(keyfields["num_possible_ensemble_members"])
     
-    training_size = 500
-    validation_size = 300
+    training_instances_per_class = 10
+    validation_size = 50
 
     b = Benchmark(
         openmlid=openmlid,
@@ -27,7 +27,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         ensemble_seed=data_seed,
         ensemble_sequence_seed=ensemble_sequence_seed,
         num_possible_ensemble_members=num_possible_ensemble_members,
-        training_size=training_size,
+        training_instances_per_class=training_instances_per_class,
         validation_size=validation_size,
         is_classification=True
     )
@@ -50,14 +50,14 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     }
     
     # run benchmark for 10 iterations (10 ensemble members)
-    print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_seed}")
+    print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_sequence_seed}")
     b.reset(approaches, t_checkpoints=t_checkpoints)
     for _ in tqdm(range(10**4)):
         b.step()
     
     folder = f"results/"
     pathlib.Path(folder).mkdir(exist_ok=True, parents=True)
-    with open(f"{openmlid}_{data_seed}_{ensemble_seed}.json", "w") as f:
+    with open(f"{openmlid}_{data_seed}_{ensemble_sequence_seed}.json", "w") as f:
         b.result_storage.serialize(f)
 
 
