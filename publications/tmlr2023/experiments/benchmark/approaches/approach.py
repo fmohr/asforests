@@ -80,13 +80,13 @@ class TheoremBasedApproach(Approach, ABC):
 
     @property
     @abstractmethod
-    def deviation_covs(self):
+    def deviation_covs_in_iid_setting(self):
         raise NotImplementedError
 
     def estimate_performance_mean_in_iid_setup(self, t):
         if isinstance(t, list):
             t = np.array(t)
-        return np.sum(self.deviation_means_in_iid_setting**2) + np.sum(self.deviation_vars_in_iid_setting) / t + (1 - 1/t) * np.sum(self.deviation_covs)
+        return np.sum(self.deviation_means_in_iid_setting**2) + np.sum(self.deviation_vars_in_iid_setting) / t + (1 - 1/t) * np.sum(self.deviation_covs_in_iid_setting)
     
     def estimate_performance_mean_in_conditional_setup(self, t):
         """

@@ -24,7 +24,7 @@ class Benchmark:
                  ensemble_seed,
                  ensemble_sequence_seed,
                  num_possible_ensemble_members,
-                 training_size,
+                 training_instances_per_class,
                  validation_size,
                  is_classification
                  ):
@@ -35,7 +35,7 @@ class Benchmark:
         self._ensemble_seed = ensemble_seed
         self._ensemble_sequence_seed = ensemble_sequence_seed
         self._num_possible_ensemble_members = num_possible_ensemble_members
-        self._training_size = training_size
+        self._training_instances_per_class = training_instances_per_class
         self._validation_size = validation_size
         self._is_classification = is_classification
         self.logger = logging.getLogger("benchmark")
@@ -61,8 +61,8 @@ class Benchmark:
         return self._data_seed
 
     @property
-    def training_size(self):
-        return self._training_size
+    def training_instances_per_class(self):
+        return self._training_instances_per_class
 
     @property
     def validation_size(self):
@@ -124,6 +124,10 @@ class Benchmark:
         return self._deviations[:, self._indices_val].var(axis=0)
 
     @property
+    def deviation_covs(self):
+        return self._covs
+
+    @property
     def deviation_covs_val(self):
         return self._covs_val
 
@@ -141,12 +145,13 @@ class Benchmark:
 
     def get_true_performance_mean_on_iid_data(self):
         t = self._t_checkpoints
-        return np.sum(self.deviation_means_val ** 2) + np.sum(self.deviation_vars_val) / t + (1 - 1/t) * np.sum(self.deviation_covs_val)
+        return np.sum(self.deviation_means ** 2) + np.sum(self.deviation_vars) / t + (1 - 1/t) * np.sum(self.deviation_covs)
     
     def get_true_performance_mean_on_conditioned_data(self, instance_indices):
         t = self._t_checkpoints
-        term1 = (self._deviations[:, instance_indices].mean(axis=0)**2).mean(axis=0).sum(axis=0)
-        term2 = (self._deviations[:, instance_indices].var(axis=0).mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
+        deviations = self._deviations[:, instance_indices]
+        term1 = (deviations.mean(axis=0)**2).mean(axis=0).sum(axis=0)
+        term2 = (deviations.var(axis=0).mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
         return term1 + term2
 
     def get_true_performance_var_on_iid_data(self):
@@ -200,19 +205,27 @@ class Benchmark:
         # prepare data with label encoding for categorical attributes
         self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
         self._y = np.array(df[ds.default_target_attribute].values)
+        label_count = {}
         if self._y.dtype != int:
             y_int = np.zeros(len(self._y)).astype(int)
             vals = np.unique(self._y)
             for i, val in enumerate(vals):
                 mask = self._y == val
+                label_count[val] = np.count_nonzero(mask)
                 y_int[mask] = i
             self._y = y_int
 
         # partition the given data into train, validation, and out-of-sample data
+        self.logger.info(f"Label count: {label_count}")
+        minority_class = min(list(label_count.keys()), key=label_count)
+
+        training_size_relative = self.training_instances_per_class / label_count[minority_class]
+        self.logger.info(f"Using {np.round(training_size_relative * 100, 2)}% of the  data for training")
+
         rs_data = np.random.RandomState(self._data_seed)
         splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size)
         validation_indices, rest_indices = next(splitter_val.split(self.X, self.y))
-        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.training_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.training_size)
+        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=training_size_relative) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=training_size_relative)
         train_indices, oos_indices = next(splitter_rest.split(self.X[rest_indices], self.y[rest_indices]))
         train_indices = rest_indices[train_indices]
         oos_indices = rest_indices[oos_indices]
@@ -253,12 +266,16 @@ class Benchmark:
         self._deviations = self._predictions - self.y_oh
 
         # compute ground truth from this tensor
-        epa = EnsemblePerformanceAssessor(upper_bound_for_sample_size=10**10, population_mode="stream")
         self._means = self._deviations.mean(axis=(0, 1))
         self._vars = self._deviations.var(axis=(0, 1))
+        epa = EnsemblePerformanceAssessor(upper_bound_for_sample_size=10**10, population_mode="stream")
         for d in self._deviations:
             epa.add_deviation_matrix(d[self._indices_val])
         self._covs_val = epa.gap_cov_across_members_point
+        epa = EnsemblePerformanceAssessor(upper_bound_for_sample_size=10**10, population_mode="stream")
+        for d in self._deviations:
+            epa.add_deviation_matrix(d)
+        self._covs = epa.gap_cov_across_members_point
 
         #assert np.all(np.isclose(self._means, epa.gap_mean_point))
         #assert np.all(np.isclose(self._vars, epa.gap_var_point))
@@ -298,7 +315,9 @@ class Benchmark:
         self._t_checkpoints = t_checkpoints
         self._true_parameters = {
             "E[Z_nt|D_val]": self.get_true_performance_mean_on_conditioned_data(instance_indices=self._indices_val),
-            "V[Z_nt|D_val]": self.get_true_performance_var_on_conditioned_data(instance_indices=self._indices_val)
+            "V[Z_nt|D_val]": self.get_true_performance_var_on_conditioned_data(instance_indices=self._indices_val),
+            "E[Z_nt]": self.get_true_performance_mean_on_iid_data(),
+            "V[Z_nt]": self.get_true_performance_var_on_iid_data()
         }
 
         # reset storage
@@ -325,7 +344,9 @@ class Benchmark:
 
             keys_and_methods = {
                 "E[Z_nt|D_val]": approach_obj.estimate_performance_mean_in_conditional_setup,
-                "V[Z_nt|D_val]": approach_obj.estimate_performance_var_in_conditional_setup
+                "V[Z_nt|D_val]": approach_obj.estimate_performance_var_in_conditional_setup,
+                "E[Z_nt]": approach_obj.estimate_performance_mean_in_iid_setup,
+                "V[Z_nt]": approach_obj.estimate_performance_var_in_iid_setup
             }
 
             estimates = {

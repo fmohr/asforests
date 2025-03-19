@@ -15,8 +15,9 @@ ACCEPTED_APPROACHES = ["bootstrapping", "databaseperparameter", "parametricmodel
 def run_experiment(keyfields: dict, result_processor, custom_config):
     openmlid = int(keyfields["openmlid"])
     data_seed = 0
-    ensemble_seed = int(keyfields["ensemble_seed"])
-    num_possible_ensemble_members=100
+    ensemble_sequence_seed = int(keyfields["ensemble_sequence_seed"])
+    num_possible_ensemble_members = int(keyfields["num_possible_ensemble_members"])
+    
     training_size = 500
     validation_size = 300
 
@@ -24,7 +25,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         openmlid=openmlid,
         data_seed=data_seed,
         ensemble_seed=data_seed,
-        ensemble_sequence_seed=ensemble_seed,
+        ensemble_sequence_seed=ensemble_sequence_seed,
         num_possible_ensemble_members=num_possible_ensemble_members,
         training_size=training_size,
         validation_size=validation_size,
@@ -33,47 +34,38 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
     # get generator for the estimates of the approach on the given problem
     t_checkpoints = [10, 100, 1000]#, 10000]
-    if approach == "bootstrapping":
-        approach_kwargs = {
-            "num_resamples": int(keyfields["num_resamples"])
-        }
-        approach_obj = BootstrappingApproach(**approach_kwargs)
-    elif approach == "databaseperparameter":
-        approach_kwargs = {
-            "population_mode": keyfields["population_mode"]
-        }
-        approach_obj = DatabaseWiseApproach(**approach_kwargs)
-    elif approach == "parametricmodel":
 
-        approach_kwargs = {
-            "num_simulated_ensembles": int(keyfields["num_simulated_ensembles"]),
-            "with_replacement": bool(keyfields["with_replacement"])
-        }
-        approach_obj = ParametricModelApproach(**approach_kwargs)
-    else:
-        raise ValueError(f"Unsupported approach {approach}")
-
+    approaches = {
+        "bootstrapping 1": BootstrappingApproach(num_resamples=1),
+        "bootstrapping 10": BootstrappingApproach(num_resamples=10),
+        "bootstrapping 100": BootstrappingApproach(num_resamples=100),
+        "parametric 1": ParametricModelApproach(num_simulated_ensembles=1),
+        "parametric 2": ParametricModelApproach(num_simulated_ensembles=2),
+        "parametric 4": ParametricModelApproach(num_simulated_ensembles=4),
+        "parametric 16": ParametricModelApproach(num_simulated_ensembles=16),
+        "parametric 64": ParametricModelApproach(num_simulated_ensembles=64),
+        "model free - stream": DatabaseWiseApproach(population_mode="stream"),
+        "model free - resample_no_replacement": DatabaseWiseApproach(population_mode="resample_no_replacement"),
+        "model free - resample_with_replacement": DatabaseWiseApproach(population_mode="resample_with_replacement")
+    }
+    
     # run benchmark for 10 iterations (10 ensemble members)
-    print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_seed} estimating with {approach}({approach_kwargs})")
-    b.reset({approach: approach_obj}, t_checkpoints=t_checkpoints)
-    for _ in tqdm(range(10**3)):
+    print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_seed}")
+    b.reset(approaches, t_checkpoints=t_checkpoints)
+    for _ in tqdm(range(10**4)):
         b.step()
     
-    folder = f"results/{openmlid}_{data_seed}_{ensemble_seed}"
+    folder = f"results/"
     pathlib.Path(folder).mkdir(exist_ok=True, parents=True)
-    with open(f"{folder}/{approach}_{approach_kwargs}.json", "w") as f:
+    with open(f"{openmlid}_{data_seed}_{ensemble_seed}.json", "w") as f:
         b.result_storage.serialize(f)
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 3:
-        raise ValueError(f"Please specify exactly two arguments (the job name and the approach).")
+    if len(sys.argv) != 2:
+        raise ValueError(f"Please specify exactly one argument (the job name).")
     name = sys.argv[1]
-    approach = sys.argv[2]
-    if approach not in ACCEPTED_APPROACHES:
-        raise ValueError(f"Please specify a valid approach (one of {ACCEPTED_APPROACHES}).")
-    print(f"Evaluated approach is: {approach}")
     sleep_time = np.random.rand() * 30
     print(f"Sleeping {sleep_time}s")
     time.sleep(sleep_time)
@@ -81,6 +73,6 @@ if __name__ == "__main__":
     pe = PyExperimenter(
         name=name,
         use_codecarbon=False,
-        experiment_configuration_file_path=f"config/{approach}.yaml"
+        experiment_configuration_file_path=f"config/experiments.yaml"
         )
     pe.execute(max_experiments=-1, experiment_function=run_experiment)

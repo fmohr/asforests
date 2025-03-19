@@ -128,6 +128,44 @@ class TestBenchmark(TestCase):
         for gt, gt_according_to_benchmark in zip(ensemble_performance_mean, b._true_parameters["E[Z_nt|D_val]"]):
             self.assertEqual(gt, gt_according_to_benchmark)
 
+    def test_correctness_of_ground_truth_iid(self):
+        
+        openmlid = 61
+        data_seed = 0
+        ensemble_seed = 0
+        training_size = 10
+        validation_size = 20
+
+        b = Benchmark(
+            openmlid=openmlid,
+            data_seed=data_seed,
+            ensemble_seed=ensemble_seed,
+            ensemble_sequence_seed=None,
+            num_possible_ensemble_members=10,
+            validation_size=validation_size,
+            training_size=training_size,
+            is_classification=True
+        )
+        t_domain = np.arange(1, 21)
+        b.reset(approaches={}, t_checkpoints=list(t_domain))
+
+        # test correctness of E[Z_nt|D_val]. Thanks to the condition, the variance become independent
+        tree_deviation_mean = b._deviations.mean(axis=(0, 1))
+        tree_deviation_var = b._deviations.var(axis=(0, 1))
+        tree_deviation_covs = []
+        for j in range(b._deviations.shape[2]):
+            tree_deviation_cov_col1 = []
+            tree_deviation_cov_col2 = []
+            for s1, s2 in it.combinations(range(b._deviations.shape[0]), 2):
+                tree_deviation_cov_col1.extend(b._deviations[s1, :, j])
+                tree_deviation_cov_col2.extend(b._deviations[s2, :, j])
+            tree_deviation_covs.append(np.cov(tree_deviation_cov_col1, tree_deviation_cov_col2, rowvar=False)[0, 1])
+        tree_deviation_covs = np.array(tree_deviation_covs)
+
+        ensemble_performance_mean = (tree_deviation_mean**2).sum() + tree_deviation_var.sum() / t_domain + tree_deviation_covs.sum() * (1 - 1 / t_domain)
+        for gt, gt_according_to_benchmark in zip(ensemble_performance_mean, b._true_parameters["E[Z_nt]"]):
+            self.assertAlmostEqual(gt, gt_according_to_benchmark)
+
     @parameterized.expand([
         ("bootstrapping", BootstrappingApproach(random_state=0, num_resamples=100)),
         ("theorem with datasets", DatabaseWiseApproach(upper_bound_for_sample_size=10**10)),
@@ -163,6 +201,47 @@ class TestBenchmark(TestCase):
         
         # check that reasonable estimates have been given
         estimates = a_obj.estimate_performance_mean_in_conditional_setup(t_checkpoints)
+        for i, e in enumerate(estimates):
+            self.assertTrue(e > 0)
+            self.assertTrue(e < 1)
+            if i > 0:
+                self.assertTrue(e < estimates[i-1])  # check monotonicity
+
+    @parameterized.expand([
+        ("bootstrapping", BootstrappingApproach(random_state=0, num_resamples=100)),
+        ("theorem with datasets", DatabaseWiseApproach(upper_bound_for_sample_size=10**10)),
+        ("parametric model", ParametricModelApproach(num_simulated_ensembles=8))
+    ])
+    def test_approach_functionality_in_iid_setting(self, a_name, a_obj):
+        openmlid = 61
+        data_seed = 0
+        ensemble_seed = 0
+        ensemble_sequence_seed = 0
+        training_size = 10
+        validation_size = 20
+
+        b = Benchmark(
+            openmlid=openmlid,
+            data_seed=data_seed,
+            ensemble_seed=ensemble_seed,
+            ensemble_sequence_seed=ensemble_sequence_seed,
+            num_possible_ensemble_members=5,
+            training_size=training_size,
+            validation_size=validation_size,
+            is_classification=True
+        )
+
+        # get generator for the estimates of the approach on the given problem
+        t_checkpoints = [10, 100, 1000]
+
+        # run benchmark twice for 10 iterations (10 ensemble members)
+        b.reset({a_name: a_obj}, t_checkpoints=t_checkpoints)
+        num_steps = 10**2
+        for _ in tqdm(range(num_steps)):
+            b.step()
+        
+        # check that reasonable estimates have been given
+        estimates = a_obj.estimate_performance_mean_in_iid_setup(t_checkpoints)
         for i, e in enumerate(estimates):
             self.assertTrue(e > 0)
             self.assertTrue(e < 1)

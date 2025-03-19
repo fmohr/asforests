@@ -46,11 +46,8 @@ class DatabaseWiseApproach(DeviationBasedApproach):
         return self.epa.gap_var_point
 
     @property
-    def deviation_covs(self):
-        if self.target_mode == "iid":
-            return self.epa.gap_cov_across_members_point
-        else:
-            return None
+    def deviation_covs_in_iid_setting(self):
+        return self.epa.gap_cov_across_members_point
 
     def receive_deviations_of_new_ensemble_member(self, deviation_matrix):
         self.epa.add_deviation_matrix(deviation_matrix)

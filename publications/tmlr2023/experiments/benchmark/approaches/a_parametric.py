@@ -57,7 +57,7 @@ class ParametricModelApproach(TheoremBasedApproach):
         return self._instance_wise_deviation_vars
 
     @property
-    def deviation_covs(self):
+    def deviation_covs_in_iid_setting(self):
         if self._deviation_covs is None:
             self._update_estimates()
         assert self._deviation_covs is not None

@@ -171,6 +171,9 @@ class ResultStorage:
     def get_errors_from_approach_for_checkpoint(self, approach_name, t):
         estimates = self.get_estimates_from_approach_for_checkpoint(approach_name=approach_name, t=t)
         t_index = self._t_checkpoints.index(t)
+        for key in estimates.columns:
+            if key not in self._true_param_values:
+                raise ValueError(f"No ground truth available for {key}")
         true_values_for_checkpoint = {p: v[t_index] for p, v in self._true_param_values.items()}
         errors = {
             col: estimates[col].apply(lambda e: e - true_values_for_checkpoint[col])
