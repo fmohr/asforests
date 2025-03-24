@@ -3,6 +3,8 @@ import pandas as pd
 from scipy.optimize import curve_fit
 
 from .approach import TheoremBasedApproach
+from scipy.optimize import OptimizeWarning
+import warnings
 
 
 class ParametricModelApproach(TheoremBasedApproach):
@@ -98,7 +100,9 @@ class ParametricModelApproach(TheoremBasedApproach):
         self._deviation_vars = []
         self._deviation_covs = []
         for j, target_errors in enumerate(errors):
-            (a, b, c), covariance = curve_fit(model, sizes, target_errors)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=OptimizeWarning)
+                (a, b, c), covariance = curve_fit(model, sizes, target_errors)
             self._deviation_means.append(a)
             self._deviation_vars.append(b)
             self._deviation_covs.append(c)
@@ -149,14 +153,16 @@ class ParametricModelApproach(TheoremBasedApproach):
             if dataset["y"].min() == dataset["y"].max():
                 a, b = dataset["y"].min(), 0
             else:
-                (a, b), _ = curve_fit(model, dataset["t"], dataset["y"])
-                if False and budget > 8:
-                    import matplotlib.pyplot as plt
-                    fig, ax = plt.subplots()
-                    ax.scatter(dataset["t"], dataset["y"], alpha=0.5)
-                    domain = np.arange(1, budget + 1)
-                    ax.plot(domain, a**2 + b / domain)
-                    plt.show()
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=OptimizeWarning)
+                    (a, b), _ = curve_fit(model, dataset["t"], dataset["y"])
+                    if False and budget > 8:
+                        import matplotlib.pyplot as plt
+                        fig, ax = plt.subplots()
+                        ax.scatter(dataset["t"], dataset["y"], alpha=0.5)
+                        domain = np.arange(1, budget + 1)
+                        ax.plot(domain, a**2 + b / domain)
+                        plt.show()
             self._instance_wise_deviation_means[i, j] = a
             self._instance_wise_deviation_vars[i, j] = b
         
