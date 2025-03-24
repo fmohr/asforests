@@ -67,12 +67,12 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     # run benchmark for 10 iterations (10 ensemble members)
     print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_sequence_seed}")
     b.reset(approaches, t_checkpoints=t_checkpoints)
-    for _ in tqdm(range(10**3)):
+    for _ in tqdm(range(10**2)):
         b.step()
     
     folder = f"results/"
     pathlib.Path(folder).mkdir(exist_ok=True, parents=True)
-    with open(f"{openmlid}_{data_seed}_{ensemble_sequence_seed}.json", "w") as f:
+    with open(f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}.json", "w") as f:
         b.result_storage.serialize(f)
 
 
