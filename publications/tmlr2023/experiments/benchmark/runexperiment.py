@@ -67,7 +67,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     # run benchmark for 10 iterations (10 ensemble members)
     print(f"Running experiment on dataset {openmlid} with seeds {data_seed}/{ensemble_sequence_seed}")
     b.reset(approaches, t_checkpoints=t_checkpoints)
-    for _ in tqdm(range(10**2)):
+    for _ in tqdm(range(2*10**2)):
         b.step()
     
     folder = f"results/"
