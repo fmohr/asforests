@@ -72,7 +72,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     
     folder = f"results/"
     pathlib.Path(folder).mkdir(exist_ok=True, parents=True)
-    with open(f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}.json", "w") as f:
+    with open(f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}.json", "w") as f:
         b.result_storage.serialize(f)
 
 
