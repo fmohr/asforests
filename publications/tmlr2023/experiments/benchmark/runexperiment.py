@@ -103,7 +103,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         bm_logger = logging.getLogger("benchmark")
         bm_logger.handlers.clear()
         bm_logger.addHandler(ch)
-        bm_logger.setLevel(logging.WARNING)
+        bm_logger.setLevel(logging.INFO)
         
         # run benchmark for 10 iterations (10 ensemble members)
         logger.info(f"Running experiment on dataset {openmlid} with data seed {data_seed}, ensemble sequence seed {ensemble_sequence_seed}, {validation_size} validation instances, and {num_possible_ensemble_members} possible ensemble members.")

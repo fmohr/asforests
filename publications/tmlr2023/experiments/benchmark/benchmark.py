@@ -34,6 +34,7 @@ class Benchmark:
                  is_classification=True,
                  captured_parameters=["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"],
                  estimate_checkpoints=None,
+                 precision=5,
                  max_ground_truth_table_size=10**6
                  ):
         
@@ -50,6 +51,7 @@ class Benchmark:
         self.captured_parameters = captured_parameters
         self.max_ground_truth_table_size = max_ground_truth_table_size
         self._estimate_checkpoints = estimate_checkpoints
+        self._precision = precision
 
         # state variables
         if X is None:
@@ -467,7 +469,7 @@ class Benchmark:
                 if has_estimate and do_update_estimates:
                     assert isinstance(e, np.ndarray), f"Returned estimates must be a numpy array, but {approach_name} returned {type(e)} for {p}"
                     for t, v in zip(self._t_checkpoints, e):
-                        estimates[int(t)][p] = float(v)
+                        estimates[int(t)][p] = float(np.round(v, self._precision))
                 runtimes[p] = t1 - t0
             
             if do_update_estimates:
