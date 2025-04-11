@@ -17,8 +17,10 @@ class EnsemblePerformanceAssessor:
             estimate_deviation_mean=True,
             estimate_deviation_var=True,
             estimate_deviation_covs=True,
+            estimate_performance_var=True,
             rs=None,
-            execute_asserts=False
+            execute_asserts=False,
+            enable_asserts=False # only for debug mode since this slows down the code
     ):
         """
         :param upper_bound_for_sample_size: constant or function of `t`. The maximum number of elements to be considered in any database used for estimation
@@ -37,7 +39,9 @@ class EnsemblePerformanceAssessor:
         self.estimate_deviation_mean = estimate_deviation_mean
         self.estimate_deviation_var = estimate_deviation_var
         self.estimate_deviation_covs = estimate_deviation_covs
+        self.estimate_performance_var = estimate_performance_var
         self.execute_asserts = execute_asserts
+        self.enable_asserts = enable_asserts
 
         # sanity check
         accepted_modes = ["stream", "resample_no_replacement", "resample_with_replacement"]
@@ -46,10 +50,12 @@ class EnsemblePerformanceAssessor:
 
         # state variables
         self.deviation_matrices = []
+        self.masks_for_valid_instances = []
         self.n = None
         self.k = None
         self.moment_builder = None
         self.mixed_moment_builder = None
+        self.mixed_moment_builders_for_xi_covs = None
 
     @property
     def t(self):
@@ -114,6 +120,7 @@ class EnsemblePerformanceAssessor:
         elif (self.n, self.k) != d.shape:
             raise ValueError(f"Expected gap format is ({self.n}, {self.k}) but observed {d.shape}")
         self.deviation_matrices.append(d)
+        self.masks_for_valid_instances.append(np.all(~np.isnan(d), axis=1))
 
         # append observations to datasets if the population mode is "stream"
         if self.population_mode == "stream":
@@ -123,22 +130,46 @@ class EnsemblePerformanceAssessor:
                 self.moment_builder = Momenter(input_dims=(self.k, 1), max_p=2)
                 self.mixed_moment_builder = MixedMomentBuilder()
 
-            # update ensemble member mean and variance
+            # update estimates of E[D^1] and V[D^1]
             if self.estimate_deviation_mean or self.estimate_deviation_var:
                 allowed_observations = self.upper_bound_for_sample_size if self.moment_builder.n is None else max([0, min(self.upper_bound_for_sample_size - self.moment_builder.n)])
                 if allowed_observations > 0:
                     self.moment_builder.add_batch(d[:allowed_observations])
-                    if self.execute_asserts and allowed_observations >= len(d):
-                        assert np.all(np.isclose(self.moment_builder.means_, np.mean(self.deviation_matrices, axis=(0, 1))))
-                        if self.t > 1:
-                            assert np.all(np.isclose(self.moment_builder.central_moments[1], np.var(self.deviation_matrices, axis=(0, 1))))
+                    if self.enable_asserts:
+                        if self.execute_asserts and allowed_observations >= len(d):
+                            assert np.all(np.isclose(self.moment_builder.means_, np.mean(self.deviation_matrices, axis=(0, 1))))
+                            if self.t > 1:
+                                assert np.all(np.isclose(self.moment_builder.central_moments[1], np.var(self.deviation_matrices, axis=(0, 1))))
 
-            # mixed central moment of degree 4 (for covariance CB)
-            if len(self.deviation_matrices) > 1 and self.estimate_deviation_covs:
-                for gap_matrix_of_ensemble_member2 in self.deviation_matrices[:-1]:
+            # update estimate of Cov[D^1, D^2]
+            if len(self.deviation_matrices) > 1 and self.estimate_deviation_covs and self.upper_bound_for_sample_size > self.mixed_moment_builder.n:
+                mask_for_valid_instances_s1 = self.masks_for_valid_instances[-1]
+                for d_s2, mask_for_valid_instances_s2 in zip(self.deviation_matrices[:-1], self.masks_for_valid_instances[:-1]):
                     allowed_observations = max([0, self.upper_bound_for_sample_size - self.mixed_moment_builder.n])
-                    if allowed_observations > 0:
-                        self.mixed_moment_builder.add_observations(d, gap_matrix_of_ensemble_member2, axis=0)
+                    
+                    if allowed_observations <= 0:
+                        break
+
+                    # only add data for instances that are available for both ensemble members
+                    mask_for_instances_that_would_be_added = mask_for_valid_instances_s1 & mask_for_valid_instances_s2
+                    d_s1_red = d[mask_for_instances_that_would_be_added][:allowed_observations]
+                    d_s2_red = d_s2[mask_for_instances_that_would_be_added][:allowed_observations]
+                    self.mixed_moment_builder.add_observations(d_s1_red, d_s2_red, axis=0)
+                    self.mixed_moment_builder.add_observations(d_s2_red, d_s1_red, axis=0)
+            
+            # estimate V[Z_nt]
+            if self.estimate_performance_var:
+                if self.mixed_moment_builders_for_xi_covs is None:
+                    self.mixed_moment_builders_for_xi_covs = {
+                        k:
+                        MixedMomentBuilder()
+                        for k in [
+                            f"{instance_pair}:{predictor_pairs}"
+                            for instance_pair in ["11", "12"]
+                            for predictor_pairs in ["1111", "1212", "1112", "1122", "1233", "1213", "1234"]
+                        ]
+                    }
+                
 
         # update estimates by resampling
         else:

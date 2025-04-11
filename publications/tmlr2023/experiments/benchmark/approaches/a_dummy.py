@@ -34,10 +34,10 @@ class DummyApproach(Approach):
             means.append((mean_deviation**2).mean(axis=0).sum())
         return np.array(means)
 
-    def estimate_performance_var_in_iid_setup(self, t):
+    def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
         
         # how would we estimate i.i.d.?
-        return self.estimate_performance_var_in_conditional_setup(t)
+        return self.estimate_performance_var_for_single_instance_in_conditional_setup(t)
 
-    def estimate_performance_var_in_conditional_setup(self, t):
+    def estimate_performance_var_for_single_instance_in_conditional_setup(self, t):
         return np.zeros((len(t), ))

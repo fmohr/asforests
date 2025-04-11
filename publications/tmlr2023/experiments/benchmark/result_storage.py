@@ -9,7 +9,7 @@ class ResultStorage:
     def __init__(self, true_param_values, approach_names, t_checkpoints, estimates=None, runtimes=None):
         for p, v in true_param_values.items():
             if len(v) != len(t_checkpoints):
-                raise ValueError(f"There must be a true value for each parameter value and each checkpoint")
+                raise ValueError(f"Shape of ground truth of {p} should be {expected_shape} but is {v.shape}")
         
         self._true_param_values = true_param_values
         self._approach_names = approach_names
@@ -168,13 +168,14 @@ class ResultStorage:
             results.append(estimates_for_budget[t])
         return pd.DataFrame(results, index=budgets)
     
+    def get_ground_truth_param_for_checkpoint(self, t):
+        t_index = self._t_checkpoints.index(t)
+        return {p: v[t_index] for p, v in self._true_param_values.items()}
+
+
     def get_errors_from_approach_for_checkpoint(self, approach_name, t):
         estimates = self.get_estimates_from_approach_for_checkpoint(approach_name=approach_name, t=t)
-        t_index = self._t_checkpoints.index(t)
-        for key in estimates.columns:
-            if key not in self._true_param_values:
-                raise ValueError(f"No ground truth available for {key}")
-        true_values_for_checkpoint = {p: v[t_index] for p, v in self._true_param_values.items()}
+        true_values_for_checkpoint = self.get_ground_truth_param_for_checkpoint(t=t)
         errors = {
             col: estimates[col].apply(lambda e: e - true_values_for_checkpoint[col])
             for col in estimates.columns

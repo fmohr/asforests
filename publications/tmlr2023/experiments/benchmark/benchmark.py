@@ -11,22 +11,30 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
-from asforests.cb_computer import EnsemblePerformanceAssessor
+
+import itertools as it
+from tqdm import tqdm
 
 from experiments.benchmark.result_storage import ResultStorage
+from experiments.benchmark._ground_truth_computer import GroundTruthComputer
 
 
 class Benchmark:
 
     def __init__(self,
-                 openmlid,
-                 data_seed,
-                 ensemble_seed,
-                 ensemble_sequence_seed,
-                 num_possible_ensemble_members,
-                 training_instances_per_class,
-                 validation_size,
-                 is_classification
+                 openmlid=None,
+                 X=None,
+                 y=None,
+                 data_seed=0,
+                 ensemble_seed=0,
+                 ensemble_sequence_seed=0,
+                 num_possible_ensemble_members=10,
+                 training_instances_per_class=10,
+                 validation_size=20,
+                 is_classification=True,
+                 captured_parameters=["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"],
+                 estimate_checkpoints=None,
+                 max_ground_truth_table_size=10**6
                  ):
         
         # configuration variables
@@ -39,11 +47,17 @@ class Benchmark:
         self._validation_size = validation_size
         self._is_classification = is_classification
         self.logger = logging.getLogger("benchmark")
+        self.captured_parameters = captured_parameters
+        self.max_ground_truth_table_size = max_ground_truth_table_size
+        self._estimate_checkpoints = estimate_checkpoints
 
         # state variables
-        self._X = self._y = None
+        if X is None:
+            self._X = self._y = None
+        else:
+            self._X = X
+            self._y = y
         self._indices_train = self._indices_val = self._indices_oos = None
-        self._means = self._vars = self._covs = self._covs_val = None
         self._deviations = None
         self._true_parameters = None
         self._prediction_matrix_generator = None
@@ -105,10 +119,6 @@ class Benchmark:
         return self._y[self._indices_oos]
 
     @property
-    def deviation_means(self):
-        return self._means
-
-    @property
     def deviation_means_val(self):
         return self._deviations[:, self._indices_val].mean(axis=0)
 
@@ -142,27 +152,110 @@ class Benchmark:
     @property
     def result_storage(self):
         return self._result_storage
-
-    def get_true_performance_mean_on_iid_data(self):
-        t = self._t_checkpoints
-        return np.sum(self.deviation_means ** 2) + np.sum(self.deviation_vars) / t + (1 - 1/t) * np.sum(self.deviation_covs)
     
-    def get_true_performance_mean_on_conditioned_data(self, instance_indices):
-        t = self._t_checkpoints
-        deviations = self._deviations[:, instance_indices]
-        term1 = (deviations.mean(axis=0)**2).mean(axis=0).sum(axis=0)
-        term2 = (deviations.var(axis=0).mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
+    def get_coefficients_for_covariances_for_variance(self, t):
+        return np.array([
+            1,
+            (t-1) * 2,
+            (t-1) * 4,
+            (t-1),
+            (t-1)*(t-2)*2,
+            (t-1)*(t-2)*4,
+            (t-1)*(t-2)*(t-3)
+        ])
+
+    def get_true_performance_mean_on_iid_data(self, t=None):
+        if t is None:
+            t = self._t_checkpoints
+
+        # compute all ingredients on RHS
+        deviation_means = self._deviations.mean(axis=(0, 1))
+        deviation_vars = self._deviations.var(axis=(0, 1), ddof=0)
+        deviation_covs = []
+        for behavior_on_target in self._deviations.transpose(2, 0, 1):
+            col1 = []
+            col2 = []
+            for i, behavior_s1 in enumerate(behavior_on_target):
+                for j, behavior_s2 in enumerate(behavior_on_target):
+                    col1.extend(behavior_s1)
+                    col2.extend(behavior_s2)
+            m = np.array([col1, col2]).T
+            deviation_covs.append(np.cov(m, rowvar=False, bias=True)[0, 1])
+        deviation_covs = np.array(deviation_covs)
+
+        # apply formula
+        return np.sum(deviation_means ** 2) + np.sum(deviation_vars) / t + (1 - 1/t) * np.sum(deviation_covs)
+    
+    def get_true_performance_mean_on_conditioned_data(self, instance_indices, t=None):
+        if t is None:
+            t = self._t_checkpoints
+        deviation_means = self._deviations[:, instance_indices].mean(axis=0)
+        deviation_vars = self._deviations[:, instance_indices].var(axis=0)
+        term1 = (deviation_means**2).mean(axis=0).sum(axis=0)
+        term2 = (deviation_vars.mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
         return term1 + term2
 
-    def get_true_performance_var_on_iid_data(self):
+    def get_true_performance_var_for_two_instances_on_iid_data(self, t=None):
+        if t is None:
+            t = self._t_checkpoints
+        
+        # check whether actual ground truth can be computed or needs to be approximated
+        num_available_ensemble_members = self._deviations.shape[0]
+        num_available_instances = self._deviations.shape[1]
+        
+        num_possible_datasets = num_available_instances ** 2
+        num_possible_ensembles = num_available_ensemble_members**4
+        required_table_entries_for_exact_computation = num_possible_datasets * num_possible_ensembles
+        computation_feasible = required_table_entries_for_exact_computation <= self.max_ground_truth_table_size
+        if not computation_feasible:
+            self.logger.warning(
+                "No exact computation of ground truth feasible for V[Z_2t], "
+                f"because {required_table_entries_for_exact_computation} table entries would be required, "
+                f"but only {self.max_ground_truth_table_size} are granted. Using an approximation."
+                )
 
-        # TODO: Implement this
-        return np.ones(len(self._t_checkpoints)) * (1 + self.data_seed) * (1 + self._ensemble_seed)
+        # get all 14 cov terms for the independent instances and ensemble members
+        gtc = GroundTruthComputer(deviations=self._deviations)
+        ground_truth_table = gtc.get_ground_truth_table_under_sample_iid_assumption(
+            max_entries=None if computation_feasible else self.max_ground_truth_table_size,
+            seed=0,
+            logger=self.logger
+        )
+        self._covariances_by_instance_pairs_iid = gtc.get_covariance_terms_for_each_instance_pair(ground_truth_table)
+        mask = self._covariances_by_instance_pairs_iid["i_1"] == self._covariances_by_instance_pairs_iid["i_2"]
+        cov_terms = (
+            self._covariances_by_instance_pairs_iid[mask].drop(columns=["i_1", "i_2"]).mean(axis=0).to_list() +
+            self._covariances_by_instance_pairs_iid[~mask].drop(columns=["i_1", "i_2"]).mean(axis=0).to_list()
+        )
+
+        # multiply cov terms with the proper coefficients
+        out = []
+        _n = 2  # by default we compute the variance for 2 instances, because then we needto take into account covariances across two instances
+        for _t in t:
+            coefs = self.get_coefficients_for_covariances_for_variance(_t)
+            coefs = np.concat([coefs, coefs])
+            terms = coefs * cov_terms
+            out.append(float(sum(terms[:7] / (_n * _t**3) + terms[7:] * (_n - 1) / (_n * _t**3))))
+        return np.array(out)
     
-    def get_true_performance_var_on_conditioned_data(self, instance_indices):
+    def get_true_performance_var_on_conditioned_data(self, instance_indices, t=None):
 
-        # TODO: Implement this
-        return np.ones(len(self._t_checkpoints)) * (1 + self.data_seed) * (1 + self._ensemble_seed)
+        if t is None:
+            t = self._t_checkpoints
+
+        # get the 7 covariance terms for *every ordered pair* of instances with index in `instance_indices`
+        gtc = GroundTruthComputer(deviations=self._deviations[:, instance_indices])
+        self._covariances_by_instance_pairs_conditioned = gtc.get_covariance_terms_for_each_instance_pair(gtc.get_conditional_ground_truth_table())
+        cov_terms = self._covariances_by_instance_pairs_conditioned.drop(columns=["i_1", "i_2"]).mean(axis=0).values
+
+        # multiply cov terms with the proper coefficients
+        out = []
+        for _t in t:
+            coefs = self.get_coefficients_for_covariances_for_variance(_t)
+            terms = coefs * cov_terms
+            out.append(float(sum(terms / _t**3)))
+        return np.array(out)
+    
     
     def _get_mandatory_preprocessing(self, X, y):
         
@@ -194,17 +287,18 @@ class Benchmark:
         :return:
         """
 
-        ds = openml.datasets.get_dataset(
-            self.openmlid,
-            download_data=False,
-            download_qualities=False,
-            download_features_meta_data=False
-        )
-        df = ds.get_data()[0]
+        if self._X is None:
+            ds = openml.datasets.get_dataset(
+                self.openmlid,
+                download_data=False,
+                download_qualities=False,
+                download_features_meta_data=False
+            )
+            df = ds.get_data()[0]
 
-        # prepare data with label encoding for categorical attributes
-        self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
-        self._y = np.array(df[ds.default_target_attribute].values)
+            # prepare data with label encoding for categorical attributes
+            self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
+            self._y = np.array(df[ds.default_target_attribute].values)
         label_count = {}
         if self._y.dtype != int:
             y_int = np.zeros(len(self._y)).astype(int)
@@ -214,6 +308,10 @@ class Benchmark:
                 label_count[val] = np.count_nonzero(mask)
                 y_int[mask] = i
             self._y = y_int
+        else:
+            vals = np.unique(self._y)
+            for i, val in enumerate(vals):
+                label_count[val] = np.count_nonzero(self._y == val)
 
         # partition the given data into train, validation, and out-of-sample data
         self.logger.info(f"Label count: {label_count}")
@@ -243,14 +341,13 @@ class Benchmark:
             pl.fit(self.X_train, self.y_train)
             self._X = pl.transform(self._X)
 
-    def _compute_ground_truth_parameters(self):
-
-        if self._means is not None:
-            self.logger.info(f"Warning: ground truth has already been computed, skipping.")
+    def _compute_predictions_and_deviations(self):
+        if self._deviations is not None:
+            self.logger.info(f"Warning: deviations have already been computed, skipping.")
             return
         
         # send log message
-        self.logger.info(f"Computing ground truth parameter values.")
+        self.logger.info(f"Computing predictions and deviations of all possible ensemble members.")
         t_start = time()
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
@@ -265,29 +362,18 @@ class Benchmark:
         self._predictions = np.array([t.predict_proba(self.X) for t in ensemble_members])
         self._deviations = self._predictions - self.y_oh
 
-        # compute ground truth from this tensor
-        self._means = self._deviations.mean(axis=(0, 1))
-        self._vars = self._deviations.var(axis=(0, 1))
-        epa = EnsemblePerformanceAssessor(upper_bound_for_sample_size=10**10, population_mode="stream")
-        for d in self._deviations:
-            epa.add_deviation_matrix(d[self._indices_val])
-        self._covs_val = epa.gap_cov_across_members_point
-        epa = EnsemblePerformanceAssessor(upper_bound_for_sample_size=10**10, population_mode="stream")
-        for d in self._deviations:
-            epa.add_deviation_matrix(d)
-        self._covs = epa.gap_cov_across_members_point
-
-        #assert np.all(np.isclose(self._means, epa.gap_mean_point))
-        #assert np.all(np.isclose(self._vars, epa.gap_var_point))
-        self.logger.info(f"Ground truth computation finished after {int(1000 * (time() - t_start))}ms.")
-    
+        # check that predictions of ensembles are pairwise different
+        for i, p1 in enumerate(self._predictions):
+            for j, p2 in enumerate(self._predictions[:i]):
+                assert not np.all(np.isclose(p1, p2)), f"Predictions of ensemble member {i} and {j} are identical."
+        self.logger.info(f"Prediction and deviation computation finished after {int(1000 * (time() - t_start))}ms.")    
     
     def reset(self, approaches: dict, t_checkpoints: list, ensemble_sequence_seed: int = None):
 
         # initialize deviations if this has not happned yet
         if self._deviations is None:
             self._load_data()
-            self._compute_ground_truth_parameters()
+            self._compute_predictions_and_deviations()
         
         # create/reset prediction matrix generator
         if ensemble_sequence_seed is not None:
@@ -313,12 +399,19 @@ class Benchmark:
         if not isinstance(t_checkpoints, np.ndarray) or not t_checkpoints.dtype == int:
             raise ValueError(f"t_checkpoints must be an integer, a list of integers, or a np array of type int but is {type(t_checkpoints)}")
         self._t_checkpoints = t_checkpoints
-        self._true_parameters = {
-            "E[Z_nt|D_val]": self.get_true_performance_mean_on_conditioned_data(instance_indices=self._indices_val),
-            "V[Z_nt|D_val]": self.get_true_performance_var_on_conditioned_data(instance_indices=self._indices_val),
-            "E[Z_nt]": self.get_true_performance_mean_on_iid_data(),
-            "V[Z_nt]": self.get_true_performance_var_on_iid_data()
-        }
+
+        self._true_parameters = {}
+        call_definitions = [
+            ("E[Z_nt|D_val]", self.get_true_performance_mean_on_conditioned_data, {"instance_indices": self._indices_val}),
+            ("V[Z_nt|D_val]", self.get_true_performance_var_on_conditioned_data, {"instance_indices": self._indices_val}),
+            ("E[Z_nt]", self.get_true_performance_mean_on_iid_data, {}),
+            ("V[Z_nt]", self.get_true_performance_var_for_two_instances_on_iid_data, {})
+        ]
+        for p, fun, kwargs in call_definitions:
+            if p in self.captured_parameters:
+                self.logger.info(f"Computing ground truth for {p}")
+                self._true_parameters[p] = fun(**kwargs)
+        self.logger.info(f"Ground truth parameter values are: {self._true_parameters}")
 
         # reset storage
         self._t = 0
@@ -327,7 +420,6 @@ class Benchmark:
             approach_names=list(approaches.keys()),
             t_checkpoints=t_checkpoints
             )
-
     
     def step(self):
 
@@ -338,29 +430,47 @@ class Benchmark:
         matrix = next(self.prediction_matrix_generator)
         self._t += 1
         self.logger.info(f"Starting round {self._t}")
+
+        do_update_estimates = self._estimate_checkpoints is None or self._t in self._estimate_checkpoints
+
         for approach_name, approach_obj in self._approaches.items():
             self.logger.debug(f"Stepping {approach_name}.")
-            t_0 = time()
-            approach_obj.receive_predictions_of_new_ensemble_member(matrix)
-            t_1 = time()
-
-            keys_and_methods = {
-                "E[Z_nt|D_val]": approach_obj.estimate_performance_mean_in_conditional_setup,
-                "V[Z_nt|D_val]": approach_obj.estimate_performance_var_in_conditional_setup,
-                "E[Z_nt]": approach_obj.estimate_performance_mean_in_iid_setup,
-                "V[Z_nt]": approach_obj.estimate_performance_var_in_iid_setup
+            keys_and_methods_available = {
+                "add": (lambda: approach_obj.receive_predictions_of_new_ensemble_member(matrix), False),
+                #"update_iid": (approach_obj._update_estimates_for_iid, False),
+                #"update_cond": (approach_obj._update_estimates_for_conditional, False),
+                "E[Z_nt|D_val]": (approach_obj.estimate_performance_mean_in_conditional_setup, True),
+                "V[Z_nt|D_val]": (approach_obj.estimate_performance_var_in_conditional_setup, True),
+                "E[Z_nt]": (approach_obj.estimate_performance_mean_in_iid_setup, True),
+                "V[Z_nt]": (approach_obj.estimate_performance_var_for_two_instances_in_iid_setup, True)
             }
+
+            enabled_keys = ["add"] + [p for p in ["E[Z_nt|D_val]", "E[Z_nt]", "V[Z_nt|D_val]", "V[Z_nt]"] if p in approach_obj.estimated_parameters]
+            keys_and_methods_applied = {k: keys_and_methods_available[k] for k in enabled_keys}
 
             estimates = {
                 int(t): {} for t in self._t_checkpoints
             }
-            runtimes = {"add": int(1000 * (t_1 - t_0))}
-            for p, m in keys_and_methods.items():
+            
+            runtimes = {}
+            if do_update_estimates:
+                self.logger.info(f"Requesting estimates for {list(keys_and_methods_applied.keys())} from {approach_name}")
+            for p, (m, has_estimate) in keys_and_methods_applied.items():
                 t0 = time()
-                e = m(self._t_checkpoints)
+                if has_estimate and do_update_estimates:
+                    self.logger.debug(f"Requesting estimates for {p} from {approach_name}")
+                    e = m(self._t_checkpoints)
+                    self.logger.debug(f"{approach_name} estimates {e} for {p}")
+                elif not has_estimate:
+                    e = m()
                 t1 = time()
-                for t, v in zip(self._t_checkpoints, e):
-                    estimates[int(t)][p] = float(v)
-                runtimes[p] = int(1000 * (t1 - t0))
-            self.logger.debug(f"Stepped {approach_name}. Runtimes: {runtimes}")
-            self._result_storage.add_estimates(approach_name, self.t, estimates, runtimes)
+                if has_estimate and do_update_estimates:
+                    assert isinstance(e, np.ndarray), f"Returned estimates must be a numpy array, but {approach_name} returned {type(e)} for {p}"
+                    for t, v in zip(self._t_checkpoints, e):
+                        estimates[int(t)][p] = float(v)
+                runtimes[p] = t1 - t0
+            
+            if do_update_estimates:
+                self.logger.info(f"Storing estimates {estimates} for approach {approach_name} with runtimes {runtimes}")
+                self._result_storage.add_estimates(approach_name, self.t, estimates, runtimes)
+            self.logger.debug(f"Stepped {approach_name}. Runtimes: {runtimes}. Estimates are {estimates}")

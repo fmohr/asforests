@@ -195,7 +195,7 @@ class MixedMomentBuilder:
 
         # update covariance
         if n1 == 0:
-            self.cov = scatter_2 / (n2 - 1)
+            self.cov = 0 if n2 == 1 else scatter_2 / (n2 - 1)
             #assert np.all(np.isclose(self.cov, np.array([np.cov(x_array[:, j], y_array[:, j], rowvar=False)[0, 1] for j in range(3)])))
 
         else:
@@ -206,10 +206,13 @@ class MixedMomentBuilder:
             c = n1 * n2 * shift_x * shift_y / (n1 + n2)
 
             self.cov = ((n1 - 1) * self.cov + scatter_2 + c) / (n1 + n2 - 1)
+            assert not np.any(np.isnan(self.cov))
 
         # update means
         self.mean_x += n2 * (means_x_2 - self.mean_x) / (n1 + n2)
         self.mean_y += n2 * (means_y_2 - self.mean_y) / (n1 + n2)
+        assert not np.any(np.isnan(self.mean_x))
+        assert not np.any(np.isnan(self.mean_y))
 
         self.n += n2
 

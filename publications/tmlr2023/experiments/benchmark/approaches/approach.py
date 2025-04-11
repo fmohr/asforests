@@ -1,16 +1,19 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import logging
 
 
 class Approach(ABC):
 
-    def __init__(self, random_state=None):
+    def __init__(self, estimated_parameters, random_state=None, logger=None):
+        self.estimated_parameters = estimated_parameters
         if random_state is None:
             random_state = np.random.RandomState()
         if isinstance(random_state, int):
             random_state = np.random.RandomState(random_state)
         self.seed = random_state.randint(low=0, high=10**7)
         self.random_state = None
+        self.logger = logger if logger is not None else logging.getLogger("approach")
         self.y_oh = None
     
     def reset(self):
@@ -33,18 +36,21 @@ class Approach(ABC):
         raise NotImplementedError    
 
     @abstractmethod
-    def estimate_performance_var_in_iid_setup(self, t):
+    def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
         raise NotImplementedError
     
     @abstractmethod
-    def estimate_performance_var_in_conditional_setup(self, t):
+    def estimate_performance_var_in_conditional_setup(self, t, n):
+        """
+            The n here is only a control parameter, because it could also be inferred from the prediction/deviation matrix size (which must coincide in this)
+        """
         raise NotImplementedError    
 
 
 class TheoremBasedApproach(Approach, ABC):
 
-    def __init__(self, random_state=None):
-        super().__init__(random_state)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     @property
     @abstractmethod
@@ -100,7 +106,7 @@ class TheoremBasedApproach(Approach, ABC):
             raise ValueError(f"deviation_means_in_conditional_setting has wrong shape for {self.__class__}. Should be {self.y_oh.shape} but is {self.deviation_means_in_conditional_setting.shape}")
         return (self.deviation_means_in_conditional_setting**2).mean(axis=0).sum() + self.deviation_vars_in_conditional_setting.mean(axis=0).sum() / t
 
-    def estimate_performance_var_in_iid_setup(self, t):
+    def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
 
         # TODO: implement this
         return np.zeros((len(t), ))
@@ -112,8 +118,8 @@ class TheoremBasedApproach(Approach, ABC):
 
 class DeviationBasedApproach(TheoremBasedApproach):
 
-    def __init__(self, random_state=None):
-        super().__init__(random_state)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
         dev = prediction_matrix - self.y_oh
