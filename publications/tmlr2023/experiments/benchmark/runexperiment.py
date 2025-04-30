@@ -58,7 +58,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             validation_size=validation_size,
             is_classification=True,
             captured_parameters=captured_parameters,
-            max_ground_truth_table_size=10**8
+            max_ground_truth_table_size=10**6
         )
 
         # get generator for the estimates of the approach on the given problem
@@ -124,15 +124,15 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    """
+    
     run_experiment({
-        "openmlid": 54,
-        "num_possible_ensemble_members": 4,
-        "validation_size": 100,
-        "data_seed": 1
+        "openmlid": 40668,
+        "num_possible_ensemble_members": 1,
+        "validation_size": 32,
+        "data_seed": 0
     }, None, None)
     exit(0)
-    """
+    
 
     if len(sys.argv) != 2:
         raise ValueError(f"Please specify exactly one argument (the job name).")

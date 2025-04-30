@@ -90,7 +90,7 @@ class GroundTruthComputer:
 
         # determine number of possible datasets
         num_possible_datasets = len(d_instances)**n
-        num_allowed_datasets = max_entries // len(d_ensemble_members)**4
+        num_allowed_datasets = (max_entries // len(d_ensemble_members)**4) if max_entries is not None else np.inf
         if logger is not None:
             logger.info(
                 f"Identified that {num_possible_datasets} are possible for {n} validation instances sampled with replacement from a pool of {len(d_instances)}. "
@@ -98,7 +98,7 @@ class GroundTruthComputer:
             )
 
         # if the number of possible datasets is not at least 100 times as big as what we can accomodate with max entries (without thinking of ensemble members)
-        if num_possible_datasets < 100 * num_allowed_datasets:
+        if num_allowed_datasets == np.inf or num_possible_datasets <= num_allowed_datasets:
             if logger is not None:
                 logger.info(f"Explicitly computing list of all possible datasets.")
             possible_datasets = np.array(list(it.product(*(n * [d_instances]))) if n > 1 else [(i, ) for i in d_instances])
@@ -106,14 +106,35 @@ class GroundTruthComputer:
                 rs = np.random.RandomState(seed)
                 possible_datasets = possible_datasets[rs.choice(range(possible_datasets.shape[0]), num_allowed_datasets, replace=False)]
         else:
-            
+            def int_to_vector(num, base, d):
+                vec = [0] * d
+                for i in reversed(range(d)):
+                    num, vec[i] = divmod(num, base)
+                return vec
+
+            def draw_unique_vectors_floyd(rs, n, d, k):
+                base = k + 1
+                N = base ** d
+                if n > N:
+                    raise ValueError(f"Cannot draw {n} unique vectors: only {N} possible.")
+
+                # Floyd's algorithm for sampling without replacement
+                selected = {}
+                result = []
+                for i in tqdm(range(N - n, N)):
+                    t = rs.randint(0, i + 1)
+                    x = selected.get(t, t)
+                    selected[i] = selected.get(i, i)
+                    result.append(x)
+
+                vectors = np.array([int_to_vector(num, base, d) for num in result], dtype=np.int32)
+                return vectors
+
             rs = np.random.RandomState(seed)
-            possible_datasets = []
-            generated_datasets = set()
             num_datasets = max_entries // len(d_ensemble_members)**4
             if logger is not None:
                 logger.info(f"Sampling {num_datasets} among all possible datasets.")
-            possible_datasets = rs.randint(0, deviations.shape[1] - 1, size=(num_datasets, n))
+            possible_datasets = draw_unique_vectors_floyd(rs, num_datasets, n, len(d_instances) - 1)
         
         n_total = len(possible_datasets) * len(d_ensemble_members)**4
         if logger is not None:
