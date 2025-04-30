@@ -57,7 +57,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True,
-            captured_parameters=captured_parameters
+            captured_parameters=captured_parameters,
+            max_ground_truth_table_size=10**8
         )
 
         # get generator for the estimates of the approach on the given problem
