@@ -40,13 +40,13 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     
     training_instances_per_class = 10
 
-    for ensemble_sequence_seed in range(10):
+    for ensemble_sequence_seed in range(5):
         filename = f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}.json"
         if pathlib.Path(filename).exists():
             print(f"Skipping seed {ensemble_sequence_seed} since result file already exists.")
             continue
             
-        captured_parameters = ["E[Z_nt]", "E[Z_nt|D_val]"]
+        captured_parameters = ["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]
 
         b = Benchmark(
             openmlid=openmlid,
@@ -67,26 +67,27 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         a_logger = logging.getLogger("approach")
         a_logger.handlers.clear()
         a_logger.addHandler(ch)
-        a_logger.setLevel(logging.WARNING)
+        a_logger.setLevel(logging.DEBUG)
         approaches = {}
         for captured_parameter in captured_parameters:
             iid_estimates_required = "|D_val" not in captured_parameter
-            for num_simulated_ensembles in [1, 10, 100]:
+            for num_simulated_ensembles in [1, 10, 100, 1000]:
                 approaches[f"{captured_parameter}::biparametric - {num_simulated_ensembles}"] = ParametricDifferenceModelApproach(
                     estimated_parameters=[captured_parameter],
                     num_simulated_ensembles=num_simulated_ensembles,
                     logger=a_logger
                 )
                 #approaches[f"triparametric - {num_simulated_ensembles}"] = ParametricModelApproach(num_simulated_ensembles=num_simulated_ensembles)
-            for bootstrap_size, num_resamples in it.product([1, 10, 100], [1, 10, 100]):
+            
+            for num_resamples, bootstrap_size in it.product([1, 10], [10, 100]):
                 approaches[f"{captured_parameter}::bootstrapping - {num_resamples}x{bootstrap_size}"] = BootstrappingApproach(
                     estimated_parameters=[captured_parameter],
                     bootstrap_size=bootstrap_size,
                     num_resamples=num_resamples,
                     logger=a_logger
                 )
-            
-            for single_instance_per_ensemble_member in [False, True]:
+
+            for single_instance_per_ensemble_member in [False]:
                 if not iid_estimates_required and single_instance_per_ensemble_member:
                     continue
                 approaches[f"{captured_parameter}::model free - stream - {'1 instance per member' if single_instance_per_ensemble_member else 'full'}"] = DatabaseWiseApproach(
@@ -124,12 +125,13 @@ if __name__ == "__main__":
 
     """
     run_experiment({
-        "openmlid": 3,
-        "num_possible_ensemble_members": 20,
-        "validation_size": 20,
+        "openmlid": 54,
+        "num_possible_ensemble_members": 4,
+        "validation_size": 100,
         "data_seed": 1
     }, None, None)
-    exit(0)"""
+    exit(0)
+    """
 
     if len(sys.argv) != 2:
         raise ValueError(f"Please specify exactly one argument (the job name).")

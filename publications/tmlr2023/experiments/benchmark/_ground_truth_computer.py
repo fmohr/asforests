@@ -9,6 +9,74 @@ class GroundTruthComputer:
     def __init__(self, deviations):
         self.deviations = deviations
 
+    def get_all_ensemble_combinations_on_deviations(self, t, compute_deviations=False):
+        
+        num_possible_ensembles = len(self.deviations)**t
+        n = self.deviations[0].shape[0]
+        total_size = num_possible_ensembles
+        print(f"Determined {total_size} worlds, based on {num_possible_ensembles} possible ensembles of size {t}. Considering {n} validation instances.")
+
+        # get definitions of possible ensembles and datasets for the given data
+        ensembles = it.product(*(t * [range(len(self.deviations))]))
+        
+        # compose all possible worlds
+        rows = []
+        pbar = tqdm(total=total_size)
+        for ensemble in ensembles:
+            row = list(ensemble)
+            ensemble_member_deviations = np.array([self.deviations[e_idx] for e_idx in ensemble])
+            ensemble_deviation = ensemble_member_deviations.mean(axis=0)
+            if compute_deviations:
+                row.extend([ensemble_member_deviations[s, i, j] for i in range(n) for j in range(self.deviations.shape[2]) for s in range(t)])
+
+            z = float((ensemble_deviation**2).mean(axis=0).sum())
+            row.append(z)
+            rows.append(row)
+            pbar.update(1)
+        pbar.close()
+        
+        columns = [f"s_{s + 1}" for s in range(t)]
+        if compute_deviations:
+            columns.extend([f"D_{i + 1}{j + 1}^{s + 1}" for i in range(n) for j in range(self.deviations.shape[2]) for s in range(t)])
+        columns.append("z")
+        
+        return pd.DataFrame(rows, columns=columns)
+    
+    def get_all_ensemble_data_combinations(self, t, n, compute_deviations=False):
+        
+        num_possible_ensembles = len(self.deviations)**t
+        num_existing_instances = self.deviations[0].shape[0]
+        num_possible_application_sets = num_existing_instances**n
+        total_size = num_possible_ensembles * num_possible_application_sets
+        print(f"Determined {total_size} worlds, based on {num_possible_ensembles} possible ensembles of size {t} and {num_possible_application_sets} possible application sets of size {n} that can be formed from {num_existing_instances} instances.")
+
+        # get definitions of possible ensembles and datasets for the given data
+        ensembles = it.product(*(t * [range(len(self.deviations))]))
+        datasets = it.product(*(n * [range(num_existing_instances)]))
+        
+        # compose all possible worlds
+        rows = []
+        pbar = tqdm(total=total_size)
+        for ensemble, dataset in it.product(ensembles, datasets):
+            row = list(dataset) + list(ensemble)
+            ensemble_member_deviations = np.array([self.deviations[e_idx, dataset] for e_idx in ensemble])
+            ensemble_deviation = ensemble_member_deviations.mean(axis=0)
+            if compute_deviations:
+                row.extend([ensemble_member_deviations[s, i, j] for i in range(n) for j in range(self.deviations.shape[2]) for s in range(t)])
+
+            z = float((ensemble_deviation**2).mean(axis=0).sum())
+            row.append(z)
+            rows.append(row)
+            pbar.update(1)
+        pbar.close()
+        
+        columns = [f"x_{i + 1}" for i in range(n)] + [f"s_{s + 1}" for s in range(t)]
+        if compute_deviations:
+            columns.extend([f"D_{i + 1}{j + 1}^{s + 1}" for i in range(n) for j in range(self.deviations.shape[2]) for s in range(t)])
+        columns.append("z")
+        
+        return pd.DataFrame(rows, columns=columns)
+
     def get_ground_truth_table(self, n, max_entries=None, seed=0, logger=None):
         deviations = self.deviations
         d_ensemble_members = range(deviations.shape[0])

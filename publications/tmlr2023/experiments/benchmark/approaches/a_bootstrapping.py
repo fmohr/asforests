@@ -42,24 +42,20 @@ class BootstrappingApproach(Approach):
             return
         
         matrices = np.array(self.prediction_matrices)
+
+        # get ensembles with their member predictions as a 5D tensor
+        ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.num_resamples, self.bootstrap_size, max(t)))
+        ensemble_member_predictions = matrices[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + matrices.shape[1:])
+        
         means = []
         variances = []
         for size in t:
-            means_of_bootstrap_samples = []
-            variances_of_bootstrap_samples = []
-            for _ in range(self.num_resamples):
-                ensemble_definitions = self.random_state.choice(range(b), size=(self.bootstrap_size, size), replace=True)
-                errors_of_ensembles_on_revealed_data = []
-                
-                for ensemble_members in ensemble_definitions:
-                    mean_prediction = matrices[ensemble_members].mean(axis=0)
-                    errors_of_ensembles_on_revealed_data.append(((mean_prediction - self.y_oh)**2).mean(axis=0).sum())
-                means_of_bootstrap_samples.append(np.mean(errors_of_ensembles_on_revealed_data))
-                variances_of_bootstrap_samples.append(np.var(errors_of_ensembles_on_revealed_data))
-            means.append(means_of_bootstrap_samples)
-            variances.append(variances_of_bootstrap_samples)
-        self._means = np.mean(means, axis=1)
-        self._vars = np.mean(variances, axis=1)
+            ensemble_predictions = ensemble_member_predictions[:, :, :size, :, :].mean(axis=2)
+            ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=2).sum(axis=2)
+            means.append(ensemble_errors.mean(axis=1).mean())
+            variances.append(ensemble_errors.var(axis=1).mean())
+        self._means = np.array(means)
+        self._vars = np.array(variances)
 
     def estimate_performance_mean_in_iid_setup(self, t):
         self._check_param_coverage("E[Z_nt]")

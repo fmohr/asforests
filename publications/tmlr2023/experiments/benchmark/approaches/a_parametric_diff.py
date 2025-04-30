@@ -1,10 +1,8 @@
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
+from numpy.linalg import lstsq
 
 from .approach import Approach
-from scipy.optimize import OptimizeWarning
-import warnings
 
 import logging
 from tqdm import tqdm
@@ -29,160 +27,173 @@ class ParametricDifferenceModelApproach(Approach):
         self.show_progress = show_progress
 
         # state variables
-        self.updated_estimates = None
+        self._sample_of_ensemble_performances = None
+        self._p_mean = None
+        self._p_cvar = None
+
     
     def reset(self):
 
         # state
         super().reset()
         self.prediction_matrices = []
-        self.updated_estimates = {}
+        self._sample_of_ensemble_performances = None
+        self._p_mean = self._p_cvar = self._p_iidvar = None
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
         self.prediction_matrices.append(prediction_matrix)
-        self.updated_estimates = {}
+        self._sample_of_ensemble_performances = None
+        self._p_mean = self._p_cvar = self._p_iidvar = None
+        self.logger.info(f"Added prediction matrix #{len(self.prediction_matrices)}")
     
-    def _check_param_coverage(self, param):
-        if param not in self.estimated_parameters:
-            self.logger.warning(
-                f"Parameter {param} not in configured estimated params {self.estimated_parameters}. "
-                "This is not a problem for this approach, but this indicates some ill configuration."
-            )
+    
+    def _get_schedule_for_max_anchor(self, max_anchor=10**3):
+        """
+           :param max_anchor: this variable define up to which t we want to create data points. Could be `b` or some constant
+        """
+        return sorted(set([int(np.round(2**(i / 2))) for i in range(int(2 * np.log2(max_anchor) + 1))]))
 
-    def estimate_performance_mean_in_iid_setup(self, t):
-        param = "E[Z_nt]"
-        self._check_param_coverage(param)
-        
-        if param not in self.updated_estimates:
-            
-            # if we do not have enough observations, return 0
-            # TODO: return empirical mean
-            b = len(self.prediction_matrices)
-            if b < 2:
-                self.updated_estimates[param] = np.zeros(len(t))
-                return self.updated_estimates[param]
-            
-            # create permutations
-            ensembles = [self.random_state.choice(range(b), size=b, replace=self.with_replacement) for _ in range(self.num_simulated_ensembles)]
+    def _sample_ensemble_performances_at_schedule(self):
+        b = len(self.prediction_matrices)
+        max_anchor = 10**3
+        self.logger.info(f"Drawing {self.num_simulated_ensembles} ensembles of size {b}")
+        ensembles = self.random_state.randint(0, b, size=(max_anchor, self.num_simulated_ensembles))
+        schedule = self._get_schedule_for_max_anchor(max_anchor)
 
-            # compute data for parametric learning problem
-            sizes = []
-            errors = []
-            self.logger.info(f"Computing database")
+        # compute data for parametric learning problem
+        sizes = []
+        errors = []
+        self.logger.info(f"Computing database")
+        if self.anchors == "full":
             for ensemble in ensembles:
 
-                if self.anchors == "full":
-                    ensemble_prediction_matrix = np.zeros(self.prediction_matrices[0].shape)
-                    for s, i in enumerate(ensemble, start=1):
-                        ensemble_prediction_matrix += (self.prediction_matrices[i] - ensemble_prediction_matrix) / s
-                        error_of_this_ensemble_per_target = ((ensemble_prediction_matrix - self.y_oh)**2).mean(axis=0)
-                        sizes.append(s)
-                        errors.append(error_of_this_ensemble_per_target)
-                
-                elif self.anchors.startswith("power"):
-                    matrices = np.array(self.prediction_matrices)
-                    schedule = sorted(set([int(np.round(2**(i / 2))) for i in range(int(2 * np.log2(b) + 1))]))
-                    for size in schedule:
-                        ensemble_prediction_matrix = matrices[ensemble[:size]].mean(axis=0)
-                        error_of_this_ensemble_per_target = ((ensemble_prediction_matrix - self.y_oh)**2).mean(axis=0)
-                        sizes.append(size)
-                        errors.append(error_of_this_ensemble_per_target)
-                
-            errors = np.array(errors).T
-            self.logger.info(f"Done. Database has {len(sizes)} entries.")
+                ensemble_prediction_matrix = np.zeros(self.prediction_matrices[0].shape)
+                for s, i in enumerate(ensemble, start=1):
+                    ensemble_prediction_matrix += (self.prediction_matrices[i] - ensemble_prediction_matrix) / s
+                    error_of_this_ensemble = ((ensemble_prediction_matrix - self.y_oh)**2).mean(axis=0).sum()
+                    sizes.append(s)
+                    errors.append(error_of_this_ensemble)
+            errors = np.array(errors)
+            
+        elif self.anchors.startswith("power"):
+            matrices = np.array(self.prediction_matrices)
+            for size in schedule:
+                ensemble_member_predictions = matrices[ensembles[:size].ravel()].reshape((size, ensembles.shape[1]) + matrices.shape[1:])
+                ensemble_prediction_matrix = ensemble_member_predictions.mean(axis=0)
+                errors_for_this_size = ((ensemble_prediction_matrix - self.y_oh)**2).mean(axis=1).sum(axis=1)
+                added_errors = errors_for_this_size.ravel()
+                sizes.extend(len(added_errors) * [size])
+                errors.extend(added_errors)
+        self._sample_of_ensemble_performances = pd.DataFrame(data={"t": sizes, "Z_nt": errors})
+        self.logger.info(f"Done. Database has {len(self._sample_of_ensemble_performances)} entries.")
 
-            # Define parametric function
-            def model(t, a, b):
-                return a + b / t
+    
+    def _estimate_params_for_mean(self):
+        # if we do not have enough observations, return 0
+        # TODO: return empirical mean
+        b = len(self.prediction_matrices)
+        if b < 2:
+            self._p_mean = np.zeros(2)
+            return
+        
+        # create permutations
+        self._sample_ensemble_performances_at_schedule()
 
-            # estimate parameters
-            self.logger.info(f"Now fitting {len(errors)} models, one per target.")
-            estimates = np.zeros(len(t))
-            for j, target_errors in enumerate(errors):
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=OptimizeWarning)
-                    (a, b), covariance = curve_fit(model, sizes, target_errors)
-                estimates += a + b / t
-            self.logger.info(f"Done, updating parameter estimates to {estimates}")
-            self.updated_estimates[param] = estimates
-        return self.updated_estimates[param]
+        # estimate parameters for mean
+        self.logger.info(f"Now fitting the model.")
+        X = np.column_stack((np.ones(len(self._sample_of_ensemble_performances)), 1 / np.array(self._sample_of_ensemble_performances["t"])))
+        self._p_mean = lstsq(X, self._sample_of_ensemble_performances["Z_nt"])[0]
+        self.logger.info(f"Done, stored values {self._p_mean}.")
+    
+    def _estimate_params_for_conditional_var(self):
+        # if we do not have enough observations, return 0
+        # TODO: return empirical mean
+        b = len(self.prediction_matrices)
+        if b < 2:
+            self._p_cvar = np.zeros(4)
+            return
+        
+        # this variable define up to which t we want to create data points. Could be `b` or some constant
+        max_anchor = 10**3
+        
+        # estimate E[Z_nt] at all anchors in the schedule
+        means_at_schedule_points = {
+            t: self.estimate_performance_mean_in_conditional_setup(t=[t])[0]
+            for t in self._get_schedule_for_max_anchor(max_anchor)
+        }
+        
+        # the ensemble performances at the schedule were implicitly computed, so we can now use them to define the targets
+        sizes = []
+        targets = []
+        for t, df_t in self._sample_of_ensemble_performances.groupby("t"):
+            mu = means_at_schedule_points[t]
+            sizes.extend([t] * len(df_t))
+            targets.extend((mu - df_t["Z_nt"])**2)
+
+        # estimate parameters for mean
+        self.logger.info(f"Now fitting {len(targets)} models, one per target.")
+        X = np.column_stack((np.ones_like(sizes), 1 / np.array(sizes), 1 / np.array(sizes)**2, 1 / np.array(sizes)**3))
+        self._p_cvar = lstsq(X, targets)[0]
+        self.logger.info("Successfully fitted model for the variance.")
+
+    def _estimate_params_for_iid_var(self):
+        # if we do not have enough observations, return 0
+        # TODO: return empirical mean
+        b = len(self.prediction_matrices)
+        if b < 7:
+            self._p_iidvar  = np.zeros(7)
+            return
+        
+        # this variable define up to which t we want to create data points. Could be `b` or some constant
+        max_anchor = 10**3
+        
+        # estimate E[Z_nt] at all anchors in the schedule
+        means_at_schedule_points = {
+            t: self.estimate_performance_mean_in_iid_setup(t=[t])[0]
+            for t in self._get_schedule_for_max_anchor(max_anchor)
+        }
+        
+        # the ensemble performances at the schedule were implicitly computed, so we can now use them to define the targets
+        sizes = []
+        targets = []
+        for t, df_t in self._sample_of_ensemble_performances.groupby("t"):
+            mu = means_at_schedule_points[t]
+            sizes.extend([t] * len(df_t))
+            targets.extend((mu - df_t["Z_nt"])**2)
+        n = self.prediction_matrices[0].shape[0]
+        sizes = np.array(sizes)
+
+        # estimate parameters for mean
+        self.logger.info(f"Now fitting {len(targets)} models, one per target.")
+        X = np.column_stack((np.ones_like(sizes) / n, 1 / (n * sizes), 1 / (n * sizes**2), 1 / (n * sizes**3), 1 / sizes, 1 / sizes**2, 1 / sizes**3))
+        self._p_iidvar = lstsq(X, targets)[0]
+        self.logger.info("Successfully fitted model for the variance.")
+
+    def estimate_performance_mean_in_iid_setup(self, t):
+        if self._p_mean is None:
+            self._estimate_params_for_mean()
+        return self._p_mean[0] + self._p_mean[1] / t
     
     def estimate_performance_mean_in_conditional_setup(self, t):
-        param = "E[Z_nt|D_val]"
-        self._check_param_coverage(param)
-
-        if param not in self.updated_estimates:
-
-            """
-                In this case, we build a model for each instance/target combination
-
-                This is because we know that E[Z_nt|D_val] can be decomposed into E[Z_ijt], where i is a specific instance and j the target.
-            """
-
-            # estimate dummy if we do not have enough observations
-            budget = len(self.prediction_matrices)
-            if budget < 2:
-                self.updated_estimates[param] = np.ones(len(t))
-                return self.updated_estimates[param]
-
-            # Define parametric function
-            def model(t, a, b):
-                return a + b / t
-            
-            checkpoints_for_budget = [10**i for i in range(int(np.log10(budget)) + 1)]
-            if budget not in checkpoints_for_budget:
-                checkpoints_for_budget.append(budget)
-
-            # estimate parameters
-            pbar = tqdm(total=self.y_oh.shape[0] * self.y_oh.shape[1], disable=not self.show_progress)
-            estimates = np.zeros(len(t))
-            matrices = np.array(self.prediction_matrices)
-            for i in range(self.y_oh.shape[0]):
-                for j in range(self.y_oh.shape[1]):
-                    ensemble_member_predictions_on_instance_for_label = matrices[:, i, j]
-                    ground_truth_on_instance_for_label = self.y_oh[i, j]
-
-                    # compute for different ensembles of different sizes the left hand side
-                    self.logger.info(f"Computing errors of ensembles at different sizes.")
-                    sizes = []
-                    errors = []
-                    for e_id in tqdm(range(self.num_simulated_ensembles), disable=not self.show_progress):
-                        ensemble = self.random_state.choice(range(budget), size=budget, replace=self.with_replacement)
-                        for s in checkpoints_for_budget:
-                            #ensemble_prediction_matrix += (self.prediction_matrices[ensemble[s - 1]] - ensemble_prediction_matrix) / s
-                            ensemble_prediction_matrix = ensemble_member_predictions_on_instance_for_label[ensemble[:s]].mean(axis=0)
-                            errors.append((ensemble_prediction_matrix - ground_truth_on_instance_for_label)**2)
-                            sizes.append(s)
-                    
-                    dataset = pd.DataFrame({"t": sizes, "y": errors})
-                    if dataset["y"].min() == dataset["y"].max():
-                        a, b = dataset["y"].min(), 0
-                    else:
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore", category=OptimizeWarning)
-                            (a, b), _ = curve_fit(model, dataset["t"], dataset["y"])
-                    estimates += a + b / t
-                    pbar.update(1)
-            pbar.close()
-            self.updated_estimates[param] = estimates / self.y_oh.shape[0] # divide by n
-            self.logger.info(f"Estimates updated to {self.updated_estimates}")
-        return self.updated_estimates[param]
+        if self._p_mean is None:
+            self._estimate_params_for_mean()
+        return self._p_mean[0] + self._p_mean[1] / t
 
     def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
-        param = "V[Z_nt]"
-        self._check_param_coverage(param)
-
-        if param not in self.updated_estimates:
-            
-            self.updated_estimates[param] = np.ones(len(t))
-        return self.updated_estimates[param]
+        if self._p_iidvar is None:
+            self._estimate_params_for_iid_var()
+        return (
+            self._p_iidvar[0] / 2 +
+            self._p_iidvar[1] / (2 * t) +
+            self._p_iidvar[2] / (2 * t**2) +
+            self._p_iidvar[3] / (2 * t**3) +
+            self._p_iidvar[4] / t +
+            self._p_iidvar[5] / t**2 +
+            self._p_iidvar[6] / t**3
+        )
     
     def estimate_performance_var_in_conditional_setup(self, t):
-        param = "V[Z_nt|D_val]"
-        self._check_param_coverage(param)
-
-        if param not in self.updated_estimates:
-            
-            self.updated_estimates[param] = np.ones(len(t))
-        return self.updated_estimates[param]
+        if self._p_cvar is None:
+            self._estimate_params_for_conditional_var()
+        return self._p_cvar[0] + self._p_cvar[1] / t + self._p_cvar[2] / t**2 + self._p_cvar[3] / t**3
         

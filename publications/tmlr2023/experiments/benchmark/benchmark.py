@@ -28,13 +28,14 @@ class Benchmark:
                  data_seed=0,
                  ensemble_seed=0,
                  ensemble_sequence_seed=0,
+                 ensemble_prefix=None,
                  num_possible_ensemble_members=10,
                  training_instances_per_class=10,
                  validation_size=20,
                  is_classification=True,
                  captured_parameters=["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"],
                  estimate_checkpoints=None,
-                 precision=5,
+                 precision=7,
                  max_ground_truth_table_size=10**6
                  ):
         
@@ -43,6 +44,7 @@ class Benchmark:
         self._data_seed = data_seed
         self._ensemble_seed = ensemble_seed
         self._ensemble_sequence_seed = ensemble_sequence_seed
+        self._ensemble_prefix = ensemble_prefix
         self._num_possible_ensemble_members = num_possible_ensemble_members
         self._training_instances_per_class = training_instances_per_class
         self._validation_size = validation_size
@@ -144,7 +146,7 @@ class Benchmark:
         return self._covs_val
 
     @property
-    def prediction_matrix_generator(self):
+    def ensemble_member_id_generator(self):
         return self._prediction_matrix_generator
     
     @property
@@ -188,7 +190,7 @@ class Benchmark:
         # apply formula
         return np.sum(deviation_means ** 2) + np.sum(deviation_vars) / t + (1 - 1/t) * np.sum(deviation_covs)
     
-    def get_true_performance_mean_on_conditioned_data(self, instance_indices, t=None):
+    def _get_true_performance_mean_on_conditioned_data(self, instance_indices, t=None):
         if t is None:
             t = self._t_checkpoints
         deviation_means = self._deviations[:, instance_indices].mean(axis=0)
@@ -197,7 +199,7 @@ class Benchmark:
         term2 = (deviation_vars.mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
         return term1 + term2
 
-    def get_true_performance_var_for_two_instances_on_iid_data(self, t=None):
+    def _get_true_performance_var_for_two_instances_on_iid_data(self, t=None):
         if t is None:
             t = self._t_checkpoints
         
@@ -225,7 +227,7 @@ class Benchmark:
         )
         self._covariances_by_instance_pairs_iid = gtc.get_covariance_terms_for_each_instance_pair(ground_truth_table)
         mask = self._covariances_by_instance_pairs_iid["i_1"] == self._covariances_by_instance_pairs_iid["i_2"]
-        cov_terms = (
+        self.cov_terms = (
             self._covariances_by_instance_pairs_iid[mask].drop(columns=["i_1", "i_2"]).mean(axis=0).to_list() +
             self._covariances_by_instance_pairs_iid[~mask].drop(columns=["i_1", "i_2"]).mean(axis=0).to_list()
         )
@@ -236,11 +238,11 @@ class Benchmark:
         for _t in t:
             coefs = self.get_coefficients_for_covariances_for_variance(_t)
             coefs = np.concat([coefs, coefs])
-            terms = coefs * cov_terms
+            terms = coefs * self.cov_terms
             out.append(float(sum(terms[:7] / (_n * _t**3) + terms[7:] * (_n - 1) / (_n * _t**3))))
         return np.array(out)
     
-    def get_true_performance_var_on_conditioned_data(self, instance_indices, t=None):
+    def _get_true_performance_var_on_conditioned_data(self, instance_indices, t=None):
 
         if t is None:
             t = self._t_checkpoints
@@ -362,7 +364,11 @@ class Benchmark:
         indices = [classes_.index(i) for i in self.y]
         self.y_oh = np.eye(len(classes_))[indices]
         self._predictions = np.array([t.predict_proba(self.X) for t in ensemble_members])
+        if np.any(np.isnan(self._predictions)):
+            raise ValueError(f"predictions have nan entries: {self._predictions}")
         self._deviations = self._predictions - self.y_oh
+        if np.any(np.isnan(self._deviations)):
+            raise ValueError(f"deviations have nan entries: {self._deviations}")
 
         # check that predictions of ensembles are pairwise different
         for i, p1 in enumerate(self._predictions):
@@ -383,7 +389,7 @@ class Benchmark:
         deviation_generator_rs = np.random.RandomState(self._ensemble_sequence_seed)
         def f():
             while True:
-                yield self._predictions[deviation_generator_rs.choice(range(len(self._deviations))), self._indices_val]
+                yield deviation_generator_rs.choice(range(len(self._deviations)))
 
         self._prediction_matrix_generator = f()
 
@@ -404,10 +410,10 @@ class Benchmark:
 
         self._true_parameters = {}
         call_definitions = [
-            ("E[Z_nt|D_val]", self.get_true_performance_mean_on_conditioned_data, {"instance_indices": self._indices_val}),
-            ("V[Z_nt|D_val]", self.get_true_performance_var_on_conditioned_data, {"instance_indices": self._indices_val}),
+            ("E[Z_nt|D_val]", self._get_true_performance_mean_on_conditioned_data, {"instance_indices": self._indices_val}),
+            ("V[Z_nt|D_val]", self._get_true_performance_var_on_conditioned_data, {"instance_indices": self._indices_val}),
             ("E[Z_nt]", self.get_true_performance_mean_on_iid_data, {}),
-            ("V[Z_nt]", self.get_true_performance_var_for_two_instances_on_iid_data, {})
+            ("V[Z_nt]", self._get_true_performance_var_for_two_instances_on_iid_data, {})
         ]
         for p, fun, kwargs in call_definitions:
             if p in self.captured_parameters:
@@ -417,6 +423,7 @@ class Benchmark:
 
         # reset storage
         self._t = 0
+        self._history_of_member_ids = []
         self._result_storage = ResultStorage(
             true_param_values=self._true_parameters,
             approach_names=list(approaches.keys()),
@@ -429,9 +436,13 @@ class Benchmark:
             raise ValueError("No approaches registered. Use `reset` to define the approaches.")
 
         # update knowledge of all approaches
-        matrix = next(self.prediction_matrix_generator)
+        member_id = next(self.ensemble_member_id_generator) if (self._ensemble_prefix is None or self._t >= len(self._ensemble_prefix)) else self._ensemble_prefix[self._t]
+        self._history_of_member_ids.append(member_id)
+        matrix = self._predictions[member_id, self._indices_val]
         self._t += 1
         self.logger.info(f"Starting round {self._t}")
+        if np.any(np.isnan(matrix)):
+            raise ValueError(f"Prediction matrix in round {self._t} has nan entries.")
 
         do_update_estimates = self._estimate_checkpoints is None or self._t in self._estimate_checkpoints
 
@@ -447,7 +458,7 @@ class Benchmark:
                 "V[Z_nt]": (approach_obj.estimate_performance_var_for_two_instances_in_iid_setup, True)
             }
 
-            enabled_keys = ["add"] + [p for p in ["E[Z_nt|D_val]", "E[Z_nt]", "V[Z_nt|D_val]", "V[Z_nt]"] if p in approach_obj.estimated_parameters]
+            enabled_keys = ["add"] + [p for p in ["E[Z_nt|D_val]", "E[Z_nt]", "V[Z_nt|D_val]", "V[Z_nt]"] if p in approach_obj.estimated_parameters and p in self.captured_parameters]
             keys_and_methods_applied = {k: keys_and_methods_available[k] for k in enabled_keys}
 
             estimates = {

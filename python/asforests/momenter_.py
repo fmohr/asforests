@@ -168,12 +168,20 @@ class Momenter:
 
 class MixedMomentBuilder:
 
-    def __init__(self):
+    def __init__(self, biased_covariance_estimate=True):
         self.mean_x = 0
         self.mean_y = 0
-        self.cov = None
+        self._cov = None
         self.m4_ = None
         self.n = 0
+        self.biased_covariance_estimate = biased_covariance_estimate
+    
+    @property
+    def cov(self):
+        _cov = self._cov if self._cov is not None else 0
+        if np.all(_cov != 0) and self.biased_covariance_estimate:
+            _cov *= (self.n - 1) / self.n
+        return _cov
 
     def add_observations(self, x_array, y_array, axis=0):
 
@@ -187,15 +195,26 @@ class MixedMomentBuilder:
 
         n1 = self.n
         n2 = x_array.shape[axis]
+        if np.any(np.isnan(x_array)):
+            raise ValueError(f"x_array has nan entries")
+        if np.any(np.isinf(x_array)):
+            raise ValueError(f"x_array has inf entries")
+        if np.any(np.isnan(y_array)):
+            raise ValueError(f"y_array has nan entries")
+        if np.any(np.isinf(y_array)):
+            raise ValueError(f"y_array has inf entries")
 
         # compute covariance of new data (actually scatter, which is covariance except the division by the number of samples)
         means_x_2 = np.mean(x_array, axis=axis)
         means_y_2 = np.mean(y_array, axis=axis)
-        scatter_2 = np.einsum("nk,nk -> k", x_array - means_x_2, y_array - means_y_2)
+        if len(x_array.shape) > 1:
+            scatter_2 = np.einsum("nk,nk -> k", x_array - means_x_2, y_array - means_y_2)
+        else:
+            scatter_2 = np.dot(x_array - means_x_2, y_array - means_y_2)
 
         # update covariance
         if n1 == 0:
-            self.cov = 0 if n2 == 1 else scatter_2 / (n2 - 1)
+            self._cov = 0 if n2 == 1 else scatter_2 / (n2 - 1)
             #assert np.all(np.isclose(self.cov, np.array([np.cov(x_array[:, j], y_array[:, j], rowvar=False)[0, 1] for j in range(3)])))
 
         else:
@@ -205,8 +224,8 @@ class MixedMomentBuilder:
             shift_y = self.mean_y - means_y_2
             c = n1 * n2 * shift_x * shift_y / (n1 + n2)
 
-            self.cov = ((n1 - 1) * self.cov + scatter_2 + c) / (n1 + n2 - 1)
-            assert not np.any(np.isnan(self.cov))
+            self._cov = ((n1 - 1) * self._cov + scatter_2 + c) / (n1 + n2 - 1)
+        assert not np.any(np.isnan(self._cov))
 
         # update means
         self.mean_x += n2 * (means_x_2 - self.mean_x) / (n1 + n2)
