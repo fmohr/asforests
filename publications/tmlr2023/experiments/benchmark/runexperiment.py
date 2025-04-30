@@ -124,7 +124,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    
+    """
     run_experiment({
         "openmlid": 40668,
         "num_possible_ensemble_members": 1,
@@ -132,6 +132,7 @@ if __name__ == "__main__":
         "data_seed": 0
     }, None, None)
     exit(0)
+    """
     
 
     if len(sys.argv) != 2:
