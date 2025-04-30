@@ -126,10 +126,10 @@ if __name__ == "__main__":
 
     """
     run_experiment({
-        "openmlid": 54,
-        "num_possible_ensemble_members": 4,
-        "validation_size": 100,
-        "data_seed": 1
+        "openmlid": 3,
+        "num_possible_ensemble_members": 1,
+        "validation_size": 32,
+        "data_seed": 0
     }, None, None)
     exit(0)
     """
@@ -146,4 +146,12 @@ if __name__ == "__main__":
         use_codecarbon=False,
         experiment_configuration_file_path=f"config/experiments.yaml"
         )
-    pe.execute(max_experiments=-1, experiment_function=run_experiment)
+
+    while True:
+        try:
+            pe.execute(max_experiments=-1, experiment_function=run_experiment)
+            break
+        except Exception as e:
+            print("Observed a problem. Waiting 5 seconds and re-running the script.")
+            print(e)
+            time.sleep(5)
