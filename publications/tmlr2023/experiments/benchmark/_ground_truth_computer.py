@@ -190,6 +190,7 @@ class GroundTruthComputer:
         blow_up_factor = n * len(d_targets)
         num_expected_entries = num_possible_ensembles * blow_up_factor
         if num_expected_entries <= max_table_size:
+            possible_ensemble_combinations = len(d_ensemble_members) ** 4
             relevant_combinations_of_ensemble_members = it.product(*(4 * [d_ensemble_members]))
         else:
             possible_ensemble_combinations = max_table_size // blow_up_factor
@@ -204,10 +205,11 @@ class GroundTruthComputer:
                 vector_length=4,
                 max_index=len(d_ensemble_members) - 1
             )
+            num_expected_entries = possible_ensemble_combinations * blow_up_factor
 
-        print(f"Table will have {len(relevant_combinations_of_ensemble_members) * blow_up_factor} rows and {len(cols)} columns.")
+        print(f"Table will have {num_expected_entries} rows and {len(cols)} columns.")
 
-        pbar = tqdm(total=len(relevant_combinations_of_ensemble_members))
+        pbar = tqdm(total=possible_ensemble_combinations)
         for s1, s2, s3, s4 in relevant_combinations_of_ensemble_members:
             row = dataset_instances + [s1, s2, s3, s4]
             for i in range(n):
