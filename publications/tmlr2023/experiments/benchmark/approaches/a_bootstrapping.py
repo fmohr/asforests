@@ -43,19 +43,24 @@ class BootstrappingApproach(Approach):
         
         matrices = np.array(self.prediction_matrices)
 
-        # get ensembles with their member predictions as a 5D tensor
-        ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.num_resamples, self.bootstrap_size, max(t)))
-        ensemble_member_predictions = matrices[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + matrices.shape[1:])
-        
         means = []
         variances = []
-        for size in t:
-            ensemble_predictions = ensemble_member_predictions[:, :, :size, :, :].mean(axis=2)
-            ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=2).sum(axis=2)
-            means.append(ensemble_errors.mean(axis=1).mean())
-            variances.append(ensemble_errors.var(axis=1).mean())
-        self._means = np.array(means)
-        self._vars = np.array(variances)
+        for _ in range(self.num_resamples):
+
+            ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.bootstrap_size, max(t)))
+            ensemble_member_predictions = matrices[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + matrices.shape[1:])
+
+            means_for_round = []
+            vars_for_round = []
+            for size in t:
+                ensemble_predictions = ensemble_member_predictions[:, :size, :, :].mean(axis=1)
+                ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=2).sum(axis=1)
+                means_for_round.append(ensemble_errors.mean())
+                vars_for_round.append(ensemble_errors.var())
+            means.append(means_for_round)
+            variances.append(vars_for_round)
+        self._means = np.array(means).mean(axis=0)
+        self._vars = np.array(variances).mean(axis=0)
 
     def estimate_performance_mean_in_iid_setup(self, t):
         self._check_param_coverage("E[Z_nt]")

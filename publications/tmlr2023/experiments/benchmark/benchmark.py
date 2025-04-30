@@ -254,7 +254,10 @@ class Benchmark:
 
         # get the 7 covariance terms for *every ordered pair* of instances with index in `instance_indices`
         gtc = GroundTruthComputer(deviations=self._deviations[:, instance_indices])
-        self._covariances_by_instance_pairs_conditioned = gtc.get_covariance_terms_for_each_instance_pair(gtc.get_conditional_ground_truth_table())
+        print(f"Getting conditional GTT")
+        cgtt = gtc.get_conditional_ground_truth_table()
+        print("Computing covariance terms")
+        self._covariances_by_instance_pairs_conditioned = gtc.get_covariance_terms_for_each_instance_pair(cgtt)
         cov_terms = self._covariances_by_instance_pairs_conditioned.drop(columns=["i_1", "i_2"]).mean(axis=0).values
 
         # multiply cov terms with the proper coefficients

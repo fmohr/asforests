@@ -4,6 +4,31 @@ from tqdm import tqdm
 import numpy as np
 
 
+def int_to_vector(num, base, d):
+    vec = [0] * d
+    for i in reversed(range(d)):
+        num, vec[i] = divmod(num, base)
+    return vec
+
+def draw_unique_vectors_floyd(rs, num_samples, vector_length, max_index):
+    base = max_index + 1
+    N = base ** vector_length
+    if num_samples > N:
+        raise ValueError(f"Cannot draw {num_samples} unique vectors: only {N} possible.")
+
+    # Floyd's algorithm for sampling without replacement
+    selected = {}
+    result = []
+    for i in tqdm(range(N - num_samples, N)):
+        t = rs.randint(0, i + 1)
+        x = selected.get(t, t)
+        selected[i] = selected.get(i, i)
+        result.append(x)
+
+    vectors = np.array([int_to_vector(num, base, vector_length) for num in result], dtype=np.int32)
+    return vectors
+
+
 class GroundTruthComputer:
 
     def __init__(self, deviations):
@@ -106,30 +131,6 @@ class GroundTruthComputer:
                 rs = np.random.RandomState(seed)
                 possible_datasets = possible_datasets[rs.choice(range(possible_datasets.shape[0]), num_allowed_datasets, replace=False)]
         else:
-            def int_to_vector(num, base, d):
-                vec = [0] * d
-                for i in reversed(range(d)):
-                    num, vec[i] = divmod(num, base)
-                return vec
-
-            def draw_unique_vectors_floyd(rs, n, d, k):
-                base = k + 1
-                N = base ** d
-                if n > N:
-                    raise ValueError(f"Cannot draw {n} unique vectors: only {N} possible.")
-
-                # Floyd's algorithm for sampling without replacement
-                selected = {}
-                result = []
-                for i in tqdm(range(N - n, N)):
-                    t = rs.randint(0, i + 1)
-                    x = selected.get(t, t)
-                    selected[i] = selected.get(i, i)
-                    result.append(x)
-
-                vectors = np.array([int_to_vector(num, base, d) for num in result], dtype=np.int32)
-                return vectors
-
             rs = np.random.RandomState(seed)
             num_datasets = max_entries // len(d_ensemble_members)**4
             if logger is not None:
@@ -168,7 +169,7 @@ class GroundTruthComputer:
         """
         return self.get_ground_truth_table(n=2, max_entries=max_entries, seed=seed, logger=logger)
     
-    def get_conditional_ground_truth_table(self):
+    def get_conditional_ground_truth_table(self, max_table_size=10**7):
         """
             Assumes that the instances given in `deviations` are the only ones available and that the dataset will look exactly like those
         """
@@ -179,14 +180,35 @@ class GroundTruthComputer:
         dataset_instances = list(range(n))
 
         # create dataframe with possible ensembles indices of size 4, and, for each of them, the deviations
-        n_total = len(d_ensemble_members)**4
-        pbar = tqdm(total=n_total)
+        num_possible_ensembles = len(d_ensemble_members)**4
         rows = []
         cols = [f"i_{i}" for i in range(1, n + 1)] + ["s_1", "s_2", "s_3", "s_4"]
         for i in range(1, n + 1):
             for j in d_targets:
                 cols.extend([f"D_{i}{j}^1", f"D_{i}{j}^2", f"D_{i}{j}^3", f"D_{i}{j}^4"])
-        for s1, s2, s3, s4 in it.product(*(4 * [d_ensemble_members])):
+        
+        blow_up_factor = n * len(d_targets)
+        num_expected_entries = num_possible_ensembles * blow_up_factor
+        if num_expected_entries <= max_table_size:
+            relevant_combinations_of_ensemble_members = it.product(*(4 * [d_ensemble_members]))
+        else:
+            possible_ensemble_combinations = max_table_size // blow_up_factor
+            expected_entries_after_update = possible_ensemble_combinations * blow_up_factor
+            print(
+                f"Expecting {num_expected_entries} many entries in table which is too large. "
+                f"We will sample {possible_ensemble_combinations} ensembles to obtain a table with {expected_entries_after_update} entries."
+            )
+            relevant_combinations_of_ensemble_members = draw_unique_vectors_floyd(
+                rs=np.random.RandomState(seed=0),
+                num_samples=possible_ensemble_combinations,
+                vector_length=4,
+                max_index=len(d_ensemble_members) - 1
+            )
+
+        print(f"Table will have {len(relevant_combinations_of_ensemble_members) * blow_up_factor} rows and {len(cols)} columns.")
+
+        pbar = tqdm(total=len(relevant_combinations_of_ensemble_members))
+        for s1, s2, s3, s4 in relevant_combinations_of_ensemble_members:
             row = dataset_instances + [s1, s2, s3, s4]
             for i in range(n):
                 for j in d_targets:
