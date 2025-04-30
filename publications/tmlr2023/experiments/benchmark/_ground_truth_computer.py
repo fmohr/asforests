@@ -88,30 +88,36 @@ class GroundTruthComputer:
                 f"Trying to compute ground truth for {len(d_instances)} instances with {n=}, and {len(d_ensemble_members)} possible ensemble members using at most {max_entries=}."
             )
 
-        # create dataframe with possible instance pairs and ensembles indices of size 4, and, for each of them, the deviations
-        if max_entries is None or (n < 10 and len(d_instances)**n * len(d_ensemble_members)**4 <= max_entries):
-            possible_datasets = list(it.product(*(n * [d_instances]))) if n > 1 else [(i, ) for i in d_instances]
+        # determine number of possible datasets
+        num_possible_datasets = len(d_instances)**n
+        num_allowed_datasets = max_entries // len(d_ensemble_members)**4
+        if logger is not None:
+            logger.info(
+                f"Identified that {num_possible_datasets} are possible for {n} validation instances sampled with replacement from a pool of {len(d_instances)}. "
+                f"{num_allowed_datasets} are ALLOWED to not overstep the maximum table size."
+            )
+
+        # if the number of possible datasets is not at least 100 times as big as what we can accomodate with max entries (without thinking of ensemble members)
+        if num_possible_datasets < 100 * num_allowed_datasets:
+            if logger is not None:
+                logger.info(f"Explicitly computing list of all possible datasets.")
+            possible_datasets = np.array(list(it.product(*(n * [d_instances]))) if n > 1 else [(i, ) for i in d_instances])
+            if num_possible_datasets > num_allowed_datasets:
+                rs = np.random.RandomState(seed)
+                possible_datasets = possible_datasets[rs.choice(range(possible_datasets.shape[0]), num_allowed_datasets, replace=False)]
         else:
             
             rs = np.random.RandomState(seed)
             possible_datasets = []
             generated_datasets = set()
             num_datasets = max_entries // len(d_ensemble_members)**4
-            pbar = tqdm(total=num_datasets, disable=True)
-            for _ in range(num_datasets):
-                while True:
-                    dataset = rs.choice(d_instances, n, replace=True)  # draw a dataset of n random instances
-                    if not str(dataset) in generated_datasets:
-                        possible_datasets.append(dataset)
-                        generated_datasets.add(str(dataset))
-                        pbar.update(1)
-                        break
-            pbar.close()
-            possible_datasets = list(possible_datasets)
             if logger is not None:
-                logger.warning(f"Cannot compute full ground truth table, approximating with {len(possible_datasets) * len(d_ensemble_members)**4} entries.")
-
+                logger.info(f"Sampling {num_datasets} among all possible datasets.")
+            possible_datasets = rs.randint(0, deviations.shape[1] - 1, size=(num_datasets, n))
+        
         n_total = len(possible_datasets) * len(d_ensemble_members)**4
+        if logger is not None:
+            logger.info(f"Identified a base set of {len(possible_datasets)} datasets. Now building GT table with {n_total} entries.")
         pbar = tqdm(total=n_total)
         rows = []
         cols = [f"i_{i}" for i in range(1, n + 1)] + ["s_1", "s_2", "s_3", "s_4"]

@@ -12,6 +12,10 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
 
+
+import os
+import psutil
+
 import itertools as it
 from tqdm import tqdm
 
@@ -69,6 +73,7 @@ class Benchmark:
         self._t_checkpoints = None
         self._t = None
         self._result_storage = None
+        self.process = psutil.Process(os.getpid()) # get process for memory surveillance
 
     @property
     def openmlid(self):
@@ -440,7 +445,11 @@ class Benchmark:
         self._history_of_member_ids.append(member_id)
         matrix = self._predictions[member_id, self._indices_val]
         self._t += 1
-        self.logger.info(f"Starting round {self._t}")
+        self.logger.info(
+            f"Starting round {self._t}. "
+            f"Current memory consumption is {self.process.memory_info().rss / (1024 ** 2):.2f}MB. "
+            f"Current CPU usage is {self.process.cpu_percent(interval=1.0)}."
+        )
         if np.any(np.isnan(matrix)):
             raise ValueError(f"Prediction matrix in round {self._t} has nan entries.")
 
