@@ -72,13 +72,14 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         approaches = {}
         for captured_parameter in captured_parameters:
             iid_estimates_required = "|D_val" not in captured_parameter
-            for num_simulated_ensembles in [1, 10, 100, 1000]:
-                approaches[f"{captured_parameter}::biparametric - {num_simulated_ensembles}"] = ParametricDifferenceModelApproach(
-                    estimated_parameters=[captured_parameter],
-                    num_simulated_ensembles=num_simulated_ensembles,
-                    logger=a_logger
-                )
-                #approaches[f"triparametric - {num_simulated_ensembles}"] = ParametricModelApproach(num_simulated_ensembles=num_simulated_ensembles)
+            if False:
+                for num_simulated_ensembles in [1, 10, 100, 1000]:
+                    approaches[f"{captured_parameter}::biparametric - {num_simulated_ensembles}"] = ParametricDifferenceModelApproach(
+                        estimated_parameters=[captured_parameter],
+                        num_simulated_ensembles=num_simulated_ensembles,
+                        logger=a_logger
+                    )
+                    #approaches[f"triparametric - {num_simulated_ensembles}"] = ParametricModelApproach(num_simulated_ensembles=num_simulated_ensembles)
             
             for num_resamples, bootstrap_size in it.product([1, 10], [10, 100]):
                 approaches[f"{captured_parameter}::bootstrapping - {num_resamples}x{bootstrap_size}"] = BootstrappingApproach(
@@ -88,16 +89,17 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                     logger=a_logger
                 )
 
-            for single_instance_per_ensemble_member in [False]:
-                if not iid_estimates_required and single_instance_per_ensemble_member:
-                    continue
-                approaches[f"{captured_parameter}::model free - stream - {'1 instance per member' if single_instance_per_ensemble_member else 'full'}"] = DatabaseWiseApproach(
-                    estimated_parameters=[captured_parameter],
-                    population_mode="stream",
-                    single_data_point_per_ensemble_member=single_instance_per_ensemble_member,
-                    create_estimates_for_iid_scenario=iid_estimates_required,
-                    logger=a_logger
-                )
+            if False:
+                for single_instance_per_ensemble_member in [False]:
+                    if not iid_estimates_required and single_instance_per_ensemble_member:
+                        continue
+                    approaches[f"{captured_parameter}::model free - stream - {'1 instance per member' if single_instance_per_ensemble_member else 'full'}"] = DatabaseWiseApproach(
+                        estimated_parameters=[captured_parameter],
+                        population_mode="stream",
+                        single_data_point_per_ensemble_member=single_instance_per_ensemble_member,
+                        create_estimates_for_iid_scenario=iid_estimates_required,
+                        logger=a_logger
+                    )
             #"model free - resample_no_replacement": DatabaseWiseApproach(population_mode="resample_no_replacement"),
             #"model free - resample_with_replacement": DatabaseWiseApproach(population_mode="resample_with_replacement")
 

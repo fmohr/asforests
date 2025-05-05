@@ -40,7 +40,8 @@ class Benchmark:
                  captured_parameters=["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"],
                  estimate_checkpoints=None,
                  precision=7,
-                 max_ground_truth_table_size=10**6
+                 max_ground_truth_table_size=10**6,
+                 track_used_resources=False
                  ):
         
         # configuration variables
@@ -58,6 +59,7 @@ class Benchmark:
         self.max_ground_truth_table_size = max_ground_truth_table_size
         self._estimate_checkpoints = estimate_checkpoints
         self._precision = precision
+        self.track_used_resources = track_used_resources
 
         # state variables
         if X is None:
@@ -443,16 +445,19 @@ class Benchmark:
         if self._approaches is None:
             raise ValueError("No approaches registered. Use `reset` to define the approaches.")
 
+        self.logger.info(f"Starting round {self._t}.")
+
         # update knowledge of all approaches
         member_id = next(self.ensemble_member_id_generator) if (self._ensemble_prefix is None or self._t >= len(self._ensemble_prefix)) else self._ensemble_prefix[self._t]
         self._history_of_member_ids.append(member_id)
         matrix = self._predictions[member_id, self._indices_val]
         self._t += 1
-        self.logger.info(
-            f"Starting round {self._t}. "
-            f"Current memory consumption is {self.process.memory_info().rss / (1024 ** 2):.2f}MB. "
-            f"Current CPU usage is {self.process.cpu_percent(interval=1.0)}."
-        )
+        if self.track_used_resources:
+            self.logger.debug(
+                f"Current memory consumption is {self.process.memory_info().rss / (1024 ** 2):.2f}MB. "
+                f"Current CPU usage is {self.process.cpu_percent(interval=1.0)}."
+            )
+        
         if np.any(np.isnan(matrix)):
             raise ValueError(f"Prediction matrix in round {self._t} has nan entries.")
 
@@ -499,3 +504,4 @@ class Benchmark:
                 self.logger.info(f"Storing estimates {estimates} for approach {approach_name} with runtimes {runtimes}")
                 self._result_storage.add_estimates(approach_name, self.t, estimates, runtimes)
             self.logger.debug(f"Stepped {approach_name}. Runtimes: {runtimes}. Estimates are {estimates}")
+        self.logger.info(f"Step finished {self._t} finished.")

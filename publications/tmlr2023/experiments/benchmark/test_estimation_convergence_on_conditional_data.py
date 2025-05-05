@@ -19,13 +19,13 @@ import logging
 ch = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
-ch.setLevel(logging.INFO)
+ch.setLevel(logging.DEBUG)
 
 # configure logger for benchmark
 bm_logger = logging.getLogger("benchmark")
 bm_logger.handlers.clear()
 bm_logger.addHandler(ch)
-bm_logger.setLevel(logging.WARN)
+bm_logger.setLevel(logging.WARNING)
 
 # configure logger for tester
 approach_logger = logging.getLogger("approach")
@@ -66,12 +66,12 @@ def get_standard_benchmark(n_samples=10, **kwargs):
 class TestBenchmark(TestCase):
     
     @parameterized.expand([(a, b, c) for (a, b), c in it.product([
-        #("bootstrapping", BootstrappingApproach(random_state=0)),
+        ("bootstrapping", BootstrappingApproach(random_state=0, num_resamples=10, bootstrap_size=10)),
         #("theorem with datasets", DatabaseWiseApproach(create_estimates_for_iid_scenario=False, upper_bound_for_sample_size=10**10)),
         #("parametric model", ParametricDifferenceModelApproach(num_simulated_ensembles=8))
-        ("parametric diff model", ParametricDifferenceModelApproach(random_state=0, logger=approach_logger))
+        #("parametric diff model", ParametricDifferenceModelApproach(random_state=0, logger=approach_logger))
     ], [
-        #"E[Z_nt|D_val]",
+        "E[Z_nt|D_val]",
         "V[Z_nt|D_val]"
         ])])
     def test_that_approach_converges_to_no_error_on_validation_data(self, a_name, a_obj, param):
@@ -123,6 +123,7 @@ class TestBenchmark(TestCase):
                 logger.info(f"Stepping the approaches until size {e_checkpoint}")
                 while b._t < e_checkpoint:
                     b.step()
+                    logger.debug(f"Step {b._t} ready.")
                 
                 logger.info(f"Getting estimates at checkpoint.")
                 #estimation = a_obj.estimate_performance_var_in_conditional_setup(t_checkpoints)

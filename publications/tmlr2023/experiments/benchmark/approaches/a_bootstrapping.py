@@ -33,18 +33,22 @@ class BootstrappingApproach(Approach):
             )
 
     def _update_estimates(self, t):
+        self.logger.info(f"Starting updating estimates with bootstrapping.")
         if isinstance(t, int):
             t = [t]
 
         b = len(self.prediction_matrices)
         if b < 2:
             self._means = self._vars = np.zeros((len(t), ))
+            self.logger.info(f"Finished updating estimates with bootstrapping (since only one ensemble member is known, bootstrapping was skipped).")
             return
         
         matrices = np.array(self.prediction_matrices)
 
         means = []
         variances = []
+
+        self.logger.debug(f"Now sampling {self.num_resamples} times {self.bootstrap_size} ensembles of size {max(t)}")
         for _ in range(self.num_resamples):
 
             ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.bootstrap_size, max(t)))
@@ -54,13 +58,14 @@ class BootstrappingApproach(Approach):
             vars_for_round = []
             for size in t:
                 ensemble_predictions = ensemble_member_predictions[:, :size, :, :].mean(axis=1)
-                ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=2).sum(axis=1)
+                ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=1).sum(axis=1)
                 means_for_round.append(ensemble_errors.mean())
                 vars_for_round.append(ensemble_errors.var())
             means.append(means_for_round)
             variances.append(vars_for_round)
         self._means = np.array(means).mean(axis=0)
         self._vars = np.array(variances).mean(axis=0)
+        self.logger.info(f"Finished updating estimates with bootstrapping.")
 
     def estimate_performance_mean_in_iid_setup(self, t):
         self._check_param_coverage("E[Z_nt]")

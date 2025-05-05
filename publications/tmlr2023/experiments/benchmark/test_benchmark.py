@@ -26,7 +26,7 @@ ch.setLevel(logging.INFO)
 bm_logger = logging.getLogger("benchmark")
 bm_logger.handlers.clear()
 bm_logger.addHandler(ch)
-bm_logger.setLevel(logging.WARN)
+bm_logger.setLevel(logging.DEBUG)
 
 # configure logger for tester
 logger = logging.getLogger("tester")
