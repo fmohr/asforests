@@ -49,7 +49,8 @@ class BootstrappingApproach(Approach):
         variances = []
 
         self.logger.debug(f"Now sampling {self.num_resamples} times {self.bootstrap_size} ensembles of size {max(t)}")
-        for _ in range(self.num_resamples):
+        for i in range(self.num_resamples):
+            self.logger.debug(f"Creating %s-th bootstrap sample", i)
 
             ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.bootstrap_size, max(t)))
             ensemble_member_predictions = matrices[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + matrices.shape[1:])

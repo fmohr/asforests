@@ -67,6 +67,7 @@ class EnsemblePerformanceAssessor:
         self.mixed_moment_builders_for_iid_xi_covs = None
         self.xi_database = None
         self.num_included_term_pairs = 0
+        self.data_points_processed_for_cov_estimate = 0
 
     @property
     def t(self):
@@ -157,139 +158,29 @@ class EnsemblePerformanceAssessor:
                 self.logger.info(f"Skipping update of estimates of E[D^1] and V[D^1] since this is not configured")
 
             # update estimate of Cov[D^1, D^2]
-            if len(self.deviation_matrices) > 1 and self.estimate_deviation_covs and self.upper_bound_for_sample_size > self.mixed_moment_builder.n:
+            if self.estimate_deviation_covs and self.upper_bound_for_sample_size > self.mixed_moment_builder.n:
                 mask_for_valid_instances_s1 = self.masks_for_valid_instances[-1]
-                for d_s2, mask_for_valid_instances_s2 in zip(self.deviation_matrices[:-1], self.masks_for_valid_instances[:-1]):
+                
+                for i, (d_s2, mask_for_valid_instances_s2) in enumerate(zip(self.deviation_matrices, self.masks_for_valid_instances)): # include the new one as well for this
                     allowed_observations = max([0, self.upper_bound_for_sample_size - self.mixed_moment_builder.n])
                     
                     if allowed_observations <= 0:
                         break
 
-                    # only add data for instances that are available for both ensemble members
-                    mask_for_instances_that_would_be_added = mask_for_valid_instances_s1 & mask_for_valid_instances_s2
-                    d_s1_red = d[mask_for_instances_that_would_be_added][:allowed_observations]
-                    d_s2_red = d_s2[mask_for_instances_that_would_be_added][:allowed_observations]
-                    self.mixed_moment_builder.add_observations(d_s1_red, d_s2_red, axis=0)
-                    self.mixed_moment_builder.add_observations(d_s2_red, d_s1_red, axis=0)
+                    valid_instances_for_comparison = mask_for_valid_instances_s1 & mask_for_valid_instances_s2
+
+                    # create data frame with all new pairs of deviations on any symmetric pair of instances and ensemble members
+                    m1 = d[valid_instances_for_comparison]
+                    m2 = d_s2[valid_instances_for_comparison]
+
+                    # if we are not combining a matrix with itself, also add the asynchronous complement
+                    self.mixed_moment_builder.add_observations(m1, m2, axis=0)
+                    if i < len(self.deviation_matrices) - 1:
+                        self.mixed_moment_builder.add_observations(m2, m1, axis=0)
             
             # estimate V[Z_nt]
             if self.estimate_performance_var_for_iid_case or self.estimate_performance_var_for_conditional_case:
-
-                if self.num_included_term_pairs > self.max_number_of_xi_terms_to_include_in_update:
-                    self.logger.info(f"Reached maximum number of estimates, ignoring new data.")
-                
-                else:
-                    self.logger.info(f"Updating estimate of covariance terms for variance estimation.")
-
-                    # initialize moment builders
-                    if self.mixed_moment_builders_for_conditional_xi_covs is None:
-                        self.mixed_moment_builders_for_conditional_xi_covs = np.array([
-                            [
-                                [
-                                    MixedMomentBuilder()
-                                    for _ in range(7)
-                                ]
-                                for i1 in range(self.n)
-                            ]
-                            for i2 in range(self.n)
-                        ])
-                    
-                    if self.mixed_moment_builders_for_iid_xi_covs is None:
-                        self.mixed_moment_builders_for_iid_xi_covs = np.array([
-                            [
-                                MixedMomentBuilder()
-                                for predictor_pairs in ["1111", "1212", "1112", "1122", "1233", "1213", "1234"]
-                            ]
-                            for instance_pair in ["11", "12"]
-                        ])
-                        self.xi_terms = None
-                    
-                    # compute new xi-terms
-                    new_xi_terms = []
-                    n, t = self.n, self.t
-                    for i in range(n):
-                        other_s = self.t - 1
-                        if np.any(np.isnan(self.deviation_matrices[other_s][i])):
-                            continue
-                        for s in range(other_s + 1):
-                            if np.any(np.isnan(self.deviation_matrices[s][i])):
-                                continue
-                            xi = np.dot(self.deviation_matrices[s][i], self.deviation_matrices[other_s][i])
-                            new_xi_terms.append((i, s, other_s, xi))
-                            if s != other_s:
-                                new_xi_terms.append((i, other_s, s, xi))
-                    df_new_xi_terms = pd.DataFrame(new_xi_terms, columns=["i", "s1", "s2", "xi"])
-                    df_new_xi_terms["same_member"] = df_new_xi_terms["s1"] == df_new_xi_terms["s2"]
-                    df_new_xi_terms["diff_member"] = ~df_new_xi_terms["same_member"]
-                    self.logger.info(f"Identified {len(df_new_xi_terms)} new xi-terms for the estimation.")
-
-                    # create table of all relevant xi terms, combining all seen (old and new) with the new ones    
-                    if self.xi_terms is None:
-                        df_full = df_new_xi_terms.merge(df_new_xi_terms, how="cross")
-                    else:
-                        num_of_new_datapoints = (2 * len(self.xi_terms) + len(df_new_xi_terms)) * len(df_new_xi_terms)
-                        self.logger.info(f"Computing {num_of_new_datapoints} new datapoints to support covariance estimates.")
-                        df_full = pd.concat([
-                            self.xi_terms.merge(df_new_xi_terms, how="cross"),
-                            df_new_xi_terms.merge(self.xi_terms, how="cross"),
-                            df_new_xi_terms.merge(df_new_xi_terms, how="cross")
-                        ])
-                    self.logger.info(f"Created {len(df_full)} data points to add for covariance estimations. Checking sanity.")
-                    assert not np.any(np.isnan(df_full[["xi_x", "xi_y"]].values))
-                    
-                    # run over the 7 cases
-                    # note that different indices do not REQUIRE but only ALLOW that the ensemble members are different!
-                    same_in_left = df_full["s1_x"] == df_full["s2_x"]
-                    same_in_right = df_full["s1_y"] == df_full["s2_y"]
-                    first_shared = df_full["s1_x"] == df_full["s1_y"]
-                    for c, mask in enumerate([
-                        same_in_left & same_in_right & first_shared, # case 11,11
-                        first_shared & (df_full["s2_x"] == df_full["s2_y"]), # case 12,12
-                        same_in_left & first_shared, # case 11,12
-                        same_in_left & same_in_right, # case 11,22
-                        same_in_right, # case 12,33
-                        first_shared, # case 12,13
-                        np.ones(len(df_full)).astype(bool) # case 12,34
-                    ]):
-                        
-                        self.logger.debug(f"Applying mask to dataframe to determine the relevant rows for the case.")
-                        df_case = df_full[mask]
-                        self.logger.debug(f"Identified {len(df_case)} data points to update covariances for case {c}.")
-                        assert not np.any(np.isnan(df_case[["xi_x", "xi_y"]].values))
-
-                        if len(df_case) <= 1:
-                            self.logger.warning(f"Skipping update of covariances for case {c} since less or equal than on data points are available, but we need at least two.")
-                            continue
-                        
-                        # add data for iid case (make two sub-cases for shared or differing instance)
-                        if self.estimate_performance_var_for_iid_case:
-                            t_start_update = time.time()
-                            equal_instance_mask = df_case["i_x"] == df_case["i_y"]
-                            if np.count_nonzero(equal_instance_mask) > 1:
-                                self.mixed_moment_builders_for_iid_xi_covs[0, c].add_observations(df_case[equal_instance_mask]["xi_x"], df_case[equal_instance_mask]["xi_y"])
-                            else:
-                                self.logger.warning("not updating IID cov estimates for equal instances since we have not data for at least two xi terms.")
-                            
-                            if len(df_case) > self.max_number_of_xi_terms_to_include_in_update:
-                                df_case = df_case.sample(replace=False, n=self.max_number_of_xi_terms_to_include_in_update)
-                                self.logger.debug(f"Using {len(df_case)} data points to update covariances for case {c}.")
-
-                            self.mixed_moment_builders_for_iid_xi_covs[1, c].add_observations(df_case["xi_x"], df_case["xi_y"])
-                            t_end_update = time.time()
-                            self.logger.debug(f"Update of covs for iid case took {np.round(t_end_update - t_start_update, 6)}s")
-
-                        # add data for conditional case
-                        if self.estimate_performance_var_for_conditional_case:
-                            t_start_update = time.time()
-                            for (i1, i2), df_sub in df_case.groupby(["i_x", "i_y"]):
-                                self.mixed_moment_builders_for_conditional_xi_covs[i1, i2, c].add_observations(df_sub["xi_x"], df_sub["xi_y"])
-                            t_end_update = time.time()
-                            self.logger.debug(f"Update of covs for conditional case took {np.round(t_end_update - t_start_update, 6)}s")
-
-                    self.num_included_term_pairs += len(df_full)
-                    self.xi_terms = df_new_xi_terms if self.xi_terms is None else pd.concat([self.xi_terms, df_new_xi_terms], ignore_index=True)
-                    self.logger.info(f"Finished update of covariance estimates.")
-                
+                self.update_estimates_of_covs_of_xi_terms_based_on_last_added_deviation_matrix()
             else:
                 self.logger.info(f"Not updating estimate of covariance terms for variance estimation since this is not configured.")
                 
@@ -343,4 +234,158 @@ class EnsemblePerformanceAssessor:
                 else:
                     raise ValueError(f"Uncovered case for population mode: {self.population_mode}")
 
-        #print(f"Added batch in {int(1000 * (time.time() - start))}ms.")
+    def update_estimates_of_covs_of_xi_terms_based_on_last_added_deviation_matrix(self):
+
+        if self.num_included_term_pairs > self.max_number_of_xi_terms_to_include_in_update:
+            self.logger.info(f"Reached maximum number of estimates, ignoring new data.")
+            return
+        
+        self.logger.info(f"Updating estimate of covariance terms for variance estimation.")
+
+        # initialize moment builders
+        if self.mixed_moment_builders_for_conditional_xi_covs is None:
+            self.logger.debug("Initializing MixedMomentBuilders for conditional covs")
+            self.mixed_moment_builders_for_conditional_xi_covs = np.array([
+                [
+                    [
+                        MixedMomentBuilder()
+                        for _ in range(7)
+                    ]
+                    for i1 in range(self.n)
+                ]
+                for i2 in range(self.n)
+            ])
+        
+        if self.mixed_moment_builders_for_iid_xi_covs is None:
+            self.logger.debug("Initializing MixedMomentBuilders for iid covs")
+            self.mixed_moment_builders_for_iid_xi_covs = np.array([
+                [
+                    MixedMomentBuilder()
+                    for predictor_pairs in ["1111", "1212", "1112", "1122", "1233", "1213", "1234"]
+                ]
+                for instance_pair in ["11", "12"]
+            ])
+            self.xi_terms = None
+        
+        # compute new xi-terms
+        new_xi_terms = []
+        n, t = self.n, self.t
+        self.logger.debug(f"Computing {n} new xi-terms")
+        for i in range(n):
+            other_s = self.t - 1
+            if np.any(np.isnan(self.deviation_matrices[other_s][i])):
+                continue
+            for s in range(other_s + 1):
+                if np.any(np.isnan(self.deviation_matrices[s][i])):
+                    continue
+                xi = np.dot(self.deviation_matrices[s][i], self.deviation_matrices[other_s][i])
+                new_xi_terms.append((i, s, other_s, xi))
+                if s != other_s:
+                    new_xi_terms.append((i, other_s, s, xi))
+        df_new_xi_terms = pd.DataFrame(new_xi_terms, columns=["i", "s1", "s2", "xi"])
+        df_new_xi_terms["same_member"] = df_new_xi_terms["s1"] == df_new_xi_terms["s2"]
+        df_new_xi_terms["diff_member"] = ~df_new_xi_terms["same_member"]
+        self.logger.info(f"Identified {len(df_new_xi_terms)} new xi-terms for the estimation. Creating combinations of those to estimate cov terms.")
+
+        # create table of all relevant xi terms, combining all seen (old and new) with the new ones    
+        if self.xi_terms is None:
+            if len(df_new_xi_terms)**2 > self.upper_bound_for_sample_size:
+                raise ValueError(f"Cannot create even initial xi-terms since these would be {len(df_new_xi_terms)**2} but the upper bound for the sample size is {self.upper_bound_for_sample_size}")
+            df_full = df_new_xi_terms.merge(df_new_xi_terms, how="cross")
+        else:
+            num_of_new_datapoints = (2 * len(self.xi_terms) + len(df_new_xi_terms)) * len(df_new_xi_terms)
+            if num_of_new_datapoints <= self.upper_bound_for_sample_size:
+                self.logger.info(f"Computing {num_of_new_datapoints} new datapoints to support covariance estimates.")
+                df_full = pd.concat([
+                    self.xi_terms.merge(df_new_xi_terms, how="cross"),
+                    df_new_xi_terms.merge(self.xi_terms, how="cross"),
+                    df_new_xi_terms.merge(df_new_xi_terms, how="cross")
+                ])
+            else:
+
+                # first create only xi-pairs where the instance is identical (since there are not so many of those)
+                df_full = pd.concat([
+                    self.xi_terms.merge(df_new_xi_terms, on="i"),
+                    df_new_xi_terms.merge(self.xi_terms, on="i"),
+                    df_new_xi_terms.merge(df_new_xi_terms, on="i")
+                ])
+                df_full["i_x"] = df_full["i"]
+                df_full["i_y"] = df_full["i"]
+                df_full.drop(columns="i", inplace=True)
+                self.logger.info(f"Combined each of the {len(df_new_xi_terms)} new xi terms twice with each existing one on a matching instance and once with each other new xi-term on a matching instance.")
+                self.logger.warning(f"Updating cov estimates not using all {num_of_new_datapoints} but only {len(df_full)} additional xi-terms for covariance estimation of V[Z_nt] and V[Z_nt|D_val] since the upper bound is {self.upper_bound_for_sample_size} and we have no method yet to effectively select xi-terms.")
+
+                # if the instance is not constrained to be equal, create a non-redundant sample of admissible size for random combinations of ensemble members
+                num_resamples = self.upper_bound_for_sample_size - len(df_full)
+                if num_resamples > 0:
+                    df_full_extension = pd.concat([
+                        self.xi_terms.merge(df_new_xi_terms, how="cross"),
+                        df_new_xi_terms.merge(self.xi_terms, how="cross"),
+                        df_new_xi_terms.merge(df_new_xi_terms, how="cross")
+                    ])
+                    df_full_extension = df_full_extension.sample(num_resamples)
+                    self.logger.debug(f"Filling up with {len(df_full_extension)} xi pairs of unequal instances.")
+                    df_full = pd.concat([df_full, df_full_extension])
+
+            
+        self.logger.info(f"Created {len(df_full)} data points to add for covariance estimations. Checking sanity.")
+        assert not np.any(np.isnan(df_full[["xi_x", "xi_y"]].values))
+        self.logger.info(f"No nan entries found. Now updating covariance estimates")
+        self.data_points_processed_for_cov_estimate += len(df_full)
+        
+        # run over the 7 cases
+        # note that different indices do not REQUIRE but only ALLOW that the ensemble members are different!
+        same_in_left = df_full["s1_x"] == df_full["s2_x"]
+        same_in_right = df_full["s1_y"] == df_full["s2_y"]
+        first_shared = df_full["s1_x"] == df_full["s1_y"]
+        for c, mask in enumerate([
+            same_in_left & same_in_right & first_shared, # case 11,11
+            first_shared & (df_full["s2_x"] == df_full["s2_y"]), # case 12,12
+            same_in_left & first_shared, # case 11,12
+            same_in_left & same_in_right, # case 11,22
+            same_in_right, # case 12,33
+            first_shared, # case 12,13
+            np.ones(len(df_full)).astype(bool) # case 12,34
+        ]):
+            
+            self.logger.debug(f"Applying mask to dataframe to determine the relevant rows for the case.")
+            df_case = df_full[mask]
+            self.logger.debug(f"Identified {len(df_case)} data points to update covariances for case {c}.")
+            assert not np.any(np.isnan(df_case[["xi_x", "xi_y"]].values))
+
+            if len(df_case) <= 1:
+                self.logger.warning(f"Skipping update of covariances for case {c} since less or equal than on data points are available, but we need at least two.")
+                continue
+            
+            # add data for iid case (make two sub-cases for shared or differing instance)
+            if self.estimate_performance_var_for_iid_case:
+                t_start_update = time.time()
+                equal_instance_mask = df_case["i_x"] == df_case["i_y"]
+
+                # first add observations for the case of equal instances
+                if np.count_nonzero(equal_instance_mask) > 1:
+                    self.mixed_moment_builders_for_iid_xi_covs[0, c].add_observations(df_case[equal_instance_mask]["xi_x"], df_case[equal_instance_mask]["xi_y"])
+                else:
+                    self.logger.warning("not updating IID cov estimates for equal instances since we have not data for at least two xi terms.")
+                
+                # now add observations for the case of unequal instances, but skip 3 of the cases, which we know have 0 values by theory
+                if c not in [3, 4, 6]:
+                    if len(df_case) > self.max_number_of_xi_terms_to_include_in_update:
+                        df_case = df_case.sample(replace=False, n=self.max_number_of_xi_terms_to_include_in_update)
+                        self.logger.debug(f"Using {len(df_case)} data points to update covariances for case {c}.")
+
+                    self.mixed_moment_builders_for_iid_xi_covs[1, c].add_observations(df_case["xi_x"], df_case["xi_y"])
+                    t_end_update = time.time()
+                    self.logger.debug(f"Update of covs for iid case took {np.round(t_end_update - t_start_update, 6)}s")
+
+            # add data for conditional case
+            if self.estimate_performance_var_for_conditional_case:
+                t_start_update = time.time()
+                for (i1, i2), df_sub in df_case.groupby(["i_x", "i_y"]):
+                    self.mixed_moment_builders_for_conditional_xi_covs[i1, i2, c].add_observations(df_sub["xi_x"], df_sub["xi_y"])
+                t_end_update = time.time()
+                self.logger.debug(f"Update of covs for conditional case took {np.round(t_end_update - t_start_update, 6)}s")
+
+        self.num_included_term_pairs += len(df_full)
+        self.xi_terms = df_new_xi_terms if self.xi_terms is None else pd.concat([self.xi_terms, df_new_xi_terms], ignore_index=True)
+        self.logger.info(f"Finished update of covariance estimates.")

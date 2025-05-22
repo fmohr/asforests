@@ -20,7 +20,8 @@ import itertools as it
 from tqdm import tqdm
 
 from experiments.benchmark.result_storage import ResultStorage
-from experiments.benchmark._ground_truth_computer import GroundTruthComputer
+from experiments.benchmark._util import get_unique_prediction_matrices
+from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach # used to compute ground truths as this is much more efficient than the naive way
 
 
 class Benchmark:
@@ -40,7 +41,7 @@ class Benchmark:
                  captured_parameters=["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"],
                  estimate_checkpoints=None,
                  precision=7,
-                 max_ground_truth_table_size=10**6,
+                 upper_bound_for_sample_size_in_ground_truth_computation=10**8,
                  track_used_resources=False
                  ):
         
@@ -56,7 +57,7 @@ class Benchmark:
         self._is_classification = is_classification
         self.logger = logging.getLogger("benchmark")
         self.captured_parameters = captured_parameters
-        self.max_ground_truth_table_size = max_ground_truth_table_size
+        self.upper_bound_for_sample_size_in_ground_truth_computation = upper_bound_for_sample_size_in_ground_truth_computation
         self._estimate_checkpoints = estimate_checkpoints
         self._precision = precision
         self.track_used_resources = track_used_resources
@@ -164,113 +165,6 @@ class Benchmark:
     def result_storage(self):
         return self._result_storage
     
-    def get_coefficients_for_covariances_for_variance(self, t):
-        return np.array([
-            1,
-            (t-1) * 2,
-            (t-1) * 4,
-            (t-1),
-            (t-1)*(t-2)*2,
-            (t-1)*(t-2)*4,
-            (t-1)*(t-2)*(t-3)
-        ])
-
-    def get_true_performance_mean_on_iid_data(self, t=None):
-        if t is None:
-            t = self._t_checkpoints
-
-        # compute all ingredients on RHS
-        deviation_means = self._deviations.mean(axis=(0, 1))
-        deviation_vars = self._deviations.var(axis=(0, 1), ddof=0)
-        deviation_covs = []
-        for behavior_on_target in self._deviations.transpose(2, 0, 1):
-            col1 = []
-            col2 = []
-            for i, behavior_s1 in enumerate(behavior_on_target):
-                for j, behavior_s2 in enumerate(behavior_on_target):
-                    col1.extend(behavior_s1)
-                    col2.extend(behavior_s2)
-            m = np.array([col1, col2]).T
-            deviation_covs.append(np.cov(m, rowvar=False, bias=True)[0, 1])
-        deviation_covs = np.array(deviation_covs)
-
-        # apply formula
-        return np.sum(deviation_means ** 2) + np.sum(deviation_vars) / t + (1 - 1/t) * np.sum(deviation_covs)
-    
-    def _get_true_performance_mean_on_conditioned_data(self, instance_indices, t=None):
-        if t is None:
-            t = self._t_checkpoints
-        deviation_means = self._deviations[:, instance_indices].mean(axis=0)
-        deviation_vars = self._deviations[:, instance_indices].var(axis=0)
-        term1 = (deviation_means**2).mean(axis=0).sum(axis=0)
-        term2 = (deviation_vars.mean(axis=0).sum(axis=0)) / t  # in the conditional variance, the deviations are independent
-        return term1 + term2
-
-    def _get_true_performance_var_for_two_instances_on_iid_data(self, t=None):
-        if t is None:
-            t = self._t_checkpoints
-        
-        # check whether actual ground truth can be computed or needs to be approximated
-        num_available_ensemble_members = self._deviations.shape[0]
-        num_available_instances = self._deviations.shape[1]
-        
-        num_possible_datasets = num_available_instances ** 2
-        num_possible_ensembles = num_available_ensemble_members**4
-        required_table_entries_for_exact_computation = num_possible_datasets * num_possible_ensembles
-        computation_feasible = required_table_entries_for_exact_computation <= self.max_ground_truth_table_size
-        if not computation_feasible:
-            self.logger.warning(
-                "No exact computation of ground truth feasible for V[Z_2t], "
-                f"because {required_table_entries_for_exact_computation} table entries would be required, "
-                f"but only {self.max_ground_truth_table_size} are granted. Using an approximation."
-                )
-
-        # get all 14 cov terms for the independent instances and ensemble members
-        gtc = GroundTruthComputer(deviations=self._deviations)
-        ground_truth_table = gtc.get_ground_truth_table_under_sample_iid_assumption(
-            max_entries=None if computation_feasible else self.max_ground_truth_table_size,
-            seed=0,
-            logger=self.logger
-        )
-        self._covariances_by_instance_pairs_iid = gtc.get_covariance_terms_for_each_instance_pair(ground_truth_table)
-        mask = self._covariances_by_instance_pairs_iid["i_1"] == self._covariances_by_instance_pairs_iid["i_2"]
-        self.cov_terms = (
-            self._covariances_by_instance_pairs_iid[mask].drop(columns=["i_1", "i_2"]).mean(axis=0).to_list() +
-            self._covariances_by_instance_pairs_iid[~mask].drop(columns=["i_1", "i_2"]).mean(axis=0).to_list()
-        )
-
-        # multiply cov terms with the proper coefficients
-        out = []
-        _n = 2  # by default we compute the variance for 2 instances, because then we needto take into account covariances across two instances
-        for _t in t:
-            coefs = self.get_coefficients_for_covariances_for_variance(_t)
-            coefs = np.concat([coefs, coefs])
-            terms = coefs * self.cov_terms
-            out.append(float(sum(terms[:7] / (_n * _t**3) + terms[7:] * (_n - 1) / (_n * _t**3))))
-        return np.array(out)
-    
-    def _get_true_performance_var_on_conditioned_data(self, instance_indices, t=None):
-
-        if t is None:
-            t = self._t_checkpoints
-
-        # get the 7 covariance terms for *every ordered pair* of instances with index in `instance_indices`
-        gtc = GroundTruthComputer(deviations=self._deviations[:, instance_indices])
-        print(f"Getting conditional GTT")
-        cgtt = gtc.get_conditional_ground_truth_table()
-        print("Computing covariance terms")
-        self._covariances_by_instance_pairs_conditioned = gtc.get_covariance_terms_for_each_instance_pair(cgtt)
-        cov_terms = self._covariances_by_instance_pairs_conditioned.drop(columns=["i_1", "i_2"]).mean(axis=0).values
-
-        # multiply cov terms with the proper coefficients
-        out = []
-        for _t in t:
-            coefs = self.get_coefficients_for_covariances_for_variance(_t)
-            terms = coefs * cov_terms
-            out.append(float(sum(terms / _t**3)))
-        return np.array(out)
-    
-    
     def _get_mandatory_preprocessing(self, X, y):
         
         # determine fixed pre-processing steps for imputation and binarization
@@ -365,15 +259,19 @@ class Benchmark:
         t_start = time()
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
-        rf = RandomForestClassifier(
-            n_estimators=self._num_possible_ensemble_members,
-            random_state=self._ensemble_seed
-            ).fit(self.X_train, self.y_train)
-        ensemble_members = list(rf)
-        classes_ = list(rf.classes_)
-        indices = [classes_.index(i) for i in self.y]
-        self.y_oh = np.eye(len(classes_))[indices]
-        self._predictions = np.array([t.predict_proba(self.X) for t in ensemble_members])
+        prediction_matrices, classes = get_unique_prediction_matrices(
+            X=self.X,
+            y=self.y,
+            train_indices=self._indices_train,
+            seed=self._ensemble_seed,
+            num_matrices=self._num_possible_ensemble_members
+        )
+
+        # memorize prediction matrices
+        indices = [classes.index(i) for i in self.y]
+        self.y_oh = np.eye(len(classes))[indices]
+        self._predictions = np.array(prediction_matrices[:self._num_possible_ensemble_members])
+        assert self._predictions.shape == (self._num_possible_ensemble_members, self.X.shape[0], self.y_oh.shape[1])
         if np.any(np.isnan(self._predictions)):
             raise ValueError(f"predictions have nan entries: {self._predictions}")
         self._deviations = self._predictions - self.y_oh
@@ -418,17 +316,34 @@ class Benchmark:
             raise ValueError(f"t_checkpoints must be an integer, a list of integers, or a np array of type int but is {type(t_checkpoints)}")
         self._t_checkpoints = t_checkpoints
 
-        self._true_parameters = {}
-        call_definitions = [
-            ("E[Z_nt|D_val]", self._get_true_performance_mean_on_conditioned_data, {"instance_indices": self._indices_val}),
-            ("V[Z_nt|D_val]", self._get_true_performance_var_on_conditioned_data, {"instance_indices": self._indices_val}),
-            ("E[Z_nt]", self.get_true_performance_mean_on_iid_data, {}),
-            ("V[Z_nt]", self._get_true_performance_var_for_two_instances_on_iid_data, {})
-        ]
-        for p, fun, kwargs in call_definitions:
-            if p in self.captured_parameters:
-                self.logger.info(f"Computing ground truth for {p}")
-                self._true_parameters[p] = fun(**kwargs)
+        # we use the database-based approach to estimate the ground truth (only possible if we show exactly once the predictions of all ensemble members, cf unit tests)
+        self.logger.info(f"Starting computation of ground truth. Maximum sample size at each stage is {self.upper_bound_for_sample_size_in_ground_truth_computation}")
+        ground_truth_computer_iid = DatabaseWiseApproach(
+            population_mode="stream",
+            estimated_parameters=["E[Z_nt]", "V[Z_nt]"],
+            upper_bound_for_sample_size=self.upper_bound_for_sample_size_in_ground_truth_computation,
+            logger=self.logger
+        )
+        ground_truth_computer_cond = DatabaseWiseApproach(
+            population_mode="stream",
+            estimated_parameters=["E[Z_nt|D_val]", "V[Z_nt|D_val]"],
+            upper_bound_for_sample_size=self.upper_bound_for_sample_size_in_ground_truth_computation,
+            logger=self.logger
+        )
+        ground_truth_computer_iid.reset()
+        ground_truth_computer_iid.tell_ground_truth_labels(y_oh=self.y_oh)
+        ground_truth_computer_cond.reset()
+        ground_truth_computer_cond.tell_ground_truth_labels(y_oh=self.y_oh[self._indices_val])
+        for s, pm in enumerate(tqdm(self._predictions)):
+            self.logger.debug(f"Feeding {s+1}-th prediction matrix to estimator to update the estimates.")
+            ground_truth_computer_iid.receive_predictions_of_new_ensemble_member(pm)
+            ground_truth_computer_cond.receive_predictions_of_new_ensemble_member(pm[self._indices_val])
+        self._true_parameters = {
+            "E[Z_nt]": ground_truth_computer_iid.estimate_performance_mean_in_iid_setup(t=self._t_checkpoints),
+            "E[Z_nt|D_val]": ground_truth_computer_cond.estimate_performance_mean_in_conditional_setup(t=self._t_checkpoints),
+            "V[Z_nt]": ground_truth_computer_iid.estimate_performance_var_for_two_instances_in_iid_setup(t=self._t_checkpoints),
+            "V[Z_nt|D_val]": ground_truth_computer_cond.estimate_performance_var_in_conditional_setup(t=self._t_checkpoints)
+        }
         self.logger.info(f"Ground truth parameter values are: {self._true_parameters}")
 
         # reset storage

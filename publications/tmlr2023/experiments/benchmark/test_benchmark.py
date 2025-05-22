@@ -11,6 +11,7 @@ from _ground_truth_computer import GroundTruthComputer
 #from _util import get_all_ensemble_data_combinations, get_all_ensemble_combinations_on_deviations
 
 from unittest import TestCase
+import pytest
 from parameterized import parameterized
 
 import logging
@@ -20,7 +21,7 @@ import logging
 ch = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
-ch.setLevel(logging.INFO)
+ch.setLevel(logging.DEBUG)
 
 # configure logger for benchmark
 bm_logger = logging.getLogger("benchmark")
@@ -43,7 +44,7 @@ def get_standard_benchmark(n_samples=10, **kwargs):
         "training_instances_per_class": 2,
         "validation_size": 4,
         "num_possible_ensemble_members": 2,
-        "max_ground_truth_table_size": 10**4
+        "upper_bound_for_sample_size_in_ground_truth_computation": 10**4
     }
     num_classes = 2
     kwargs_default.update(kwargs)
@@ -77,7 +78,7 @@ class TestBenchmark(TestCase):
             training_instances_per_class=training_instances_per_class,
             validation_size=validation_size,
             is_classification=True,
-            max_ground_truth_table_size=10**3
+            upper_bound_for_sample_size_in_ground_truth_computation=10**6
         )
 
         # get generator for the estimates of the approach on the given problem
@@ -86,6 +87,37 @@ class TestBenchmark(TestCase):
         # run benchmark twice for 10 iterations (10 ensemble members)
         b.reset({}, t_checkpoints=t_checkpoints)
     
+    
+    @parameterized.expand([
+        61, 188
+    ])
+    def test_ability_to_create_necessary_number_of_distinct_ensemble_members(self, openmlid):
+        data_seed = 0
+        ensemble_seed = 0
+        ensemble_sequence_seed = 0
+        training_instances_per_class = 10
+        validation_size = 20
+
+        b = Benchmark(
+            openmlid=openmlid,
+            data_seed=data_seed,
+            ensemble_seed=ensemble_seed,
+            ensemble_sequence_seed=ensemble_sequence_seed,
+            num_possible_ensemble_members=10**1,
+            training_instances_per_class=training_instances_per_class,
+            validation_size=validation_size,
+            is_classification=True,
+            upper_bound_for_sample_size_in_ground_truth_computation=10**3
+        )
+
+        b = get_standard_benchmark()
+
+        # get generator for the estimates of the approach on the given problem
+        t_checkpoints = [10, 100, 1000]
+
+        # run benchmark twice for 10 iterations (10 ensemble members)
+        b.reset({}, t_checkpoints=t_checkpoints)
+
     def test_that_ground_truth_values_are_insensitive_to_change_in_ensemble_sequence_seed(self):
         true_parameters = []
         for ensemble_seed in range(2):
@@ -98,7 +130,7 @@ class TestBenchmark(TestCase):
                 training_instances_per_class=10,
                 validation_size=10,
                 is_classification=True,
-                max_ground_truth_table_size=10**3
+                upper_bound_for_sample_size_in_ground_truth_computation=10**5
             )
             
             # run benchmark twice for 10 iterations (10 ensemble members)
@@ -162,52 +194,51 @@ class TestBenchmark(TestCase):
             b.reset(approaches={}, t_checkpoints=list(t_domain))
 
             # get ground truth
-            df_worlds = GroundTruthComputer(b._deviations[:, b._indices_val]).get_all_ensemble_combinations_on_deviations(t=t)
-            true_mean = df_worlds["z"].mean()
-            true_var = df_worlds["z"].var(ddof=ddof)
+            gtc = GroundTruthComputer(b._deviations[:, b._indices_val])
+            true_mean = gtc.get_true_parameter("E[Z_nt|D_val]", t=t)
+            true_var = gtc.get_true_parameter("V[Z_nt|D_val]", t=t)
 
             # get prediction of benchmark
             mean_according_to_benchmark = b._true_parameters["E[Z_nt|D_val]"][index_t]
             var_according_to_benchmark = b._true_parameters["V[Z_nt|D_val]"][index_t]  # no index_n given here since n is determine by |D_val|
-            self.assertAlmostEqual(true_mean, mean_according_to_benchmark)
-            self.assertAlmostEqual(true_var, var_according_to_benchmark)
+            self.assertAlmostEqual(true_mean, mean_according_to_benchmark, msg=f"E[Z_nt|D_val] is {true_mean} but was estimated with {mean_according_to_benchmark} for {t=}.")
+            self.assertAlmostEqual(true_var, var_according_to_benchmark, msg=f"V[Z_nt|D_val] is {true_var} but was estimated with {var_according_to_benchmark} for {t=}.")
 
     def test_correctness_of_ground_truth_iid(self):
         
-        b = get_standard_benchmark(max_ground_truth_table_size=10**6)
+        b = get_standard_benchmark(upper_bound_for_sample_size_in_ground_truth_computation=10**6)
         t_domain = np.arange(2, 6)
         b.reset(approaches={}, t_checkpoints=list(t_domain))
 
-        ddof = 0
         for index_t, t in enumerate(t_domain):
 
             # get ground truth
-            df_worlds = GroundTruthComputer(b._deviations).get_all_ensemble_data_combinations(n=2, t=t)
-            true_mean = df_worlds["z"].mean()
-            true_var = df_worlds["z"].var(ddof=ddof)
+            gtc = GroundTruthComputer(b._deviations)
+            true_mean = gtc.get_true_parameter("E[Z_nt]", t=t)
+            true_var = gtc.get_true_parameter("V[Z_nt]", t=t, n=2)
 
             # get prediction of benchmark
             mean_according_to_benchmark = b._true_parameters["E[Z_nt]"][index_t]
             var_according_to_benchmark = b._true_parameters["V[Z_nt]"][index_t]
-            self.assertAlmostEqual(true_mean, mean_according_to_benchmark, msg=f"E[Z_nt] is {true_mean} but was estimated with {mean_according_to_benchmark}.")
-            self.assertAlmostEqual(true_var, var_according_to_benchmark, msg=f"V[Z_nt] is {true_var} but was estimated with {var_according_to_benchmark}.")
+            self.assertAlmostEqual(true_mean, mean_according_to_benchmark, msg=f"E[Z_nt] is {true_mean} but was estimated with {mean_according_to_benchmark} for {t=}.")
+            self.assertAlmostEqual(true_var, var_according_to_benchmark, msg=f"V[Z_nt] is {true_var} but was estimated with {var_according_to_benchmark} for {t=}.")
 
     def test_ground_truth_approximation_for_big_datasets(self):
 
         t = np.array([10])
-        n_samples = 800
+        n_samples = 10**3
 
         # get ground truth
-        b = get_standard_benchmark(n_samples=n_samples, max_ground_truth_table_size=10**8)
+        b = get_standard_benchmark(n_samples=n_samples, upper_bound_for_sample_size_in_ground_truth_computation=10**9)
         logger.info("Resetting the benchmark. This implies computing true mean and var on this dataset using full table size.")
         b.reset(approaches={}, t_checkpoints=t)
         logger.info("Extracting true means and variances.")
         true_mean, true_var = b._true_parameters["E[Z_nt]"], b._true_parameters["V[Z_nt]"]
 
         # approximate true parameters
-        max_ground_truth_table_size=10**6
-        b = get_standard_benchmark(n_samples=n_samples, max_ground_truth_table_size=max_ground_truth_table_size)
-        logger.info(f"Approximating the mean and var on this dataset using a table of size {max_ground_truth_table_size}.")
+        upper_bound_for_sample_size_in_ground_truth_computation=10**7
+        b = get_standard_benchmark(n_samples=n_samples, upper_bound_for_sample_size_in_ground_truth_computation=upper_bound_for_sample_size_in_ground_truth_computation)
+        logger.info(f"Approximating the mean and var on this dataset using a table of size {upper_bound_for_sample_size_in_ground_truth_computation}.")
         b.reset(approaches={}, t_checkpoints=t)
         approximated_mean, approximated_var = b._true_parameters["E[Z_nt]"], b._true_parameters["V[Z_nt]"]
         

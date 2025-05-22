@@ -2,6 +2,7 @@ import itertools as it
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
+from joblib import Parallel, delayed
 
 
 def int_to_vector(num, base, d):
@@ -34,7 +35,67 @@ class GroundTruthComputer:
     def __init__(self, deviations):
         self.deviations = deviations
 
+    def get_true_parameter(self, param, t, n=None, bias=True):
+        if param == "E[Z_nt]":
+            if n is not None:
+                Warning(f"n should be None for E[Z_nt] but is {n=}")
+            return self.get_all_ensemble_data_combinations(n=2, t=t)["z"].mean()
+        if param == "V[Z_nt]":
+            if n is None:
+                raise ValueError(f"n must be specified when querying the true value of v[Z_nt]")
+            return self.get_all_ensemble_data_combinations(n=n, t=t)["z"].var(ddof=0 if bias else 1)
+        if param == "E[Z_nt|D_val]":
+            return self.get_all_ensemble_combinations_on_deviations(t=t)["z"].mean()
+        if param == "V[Z_nt|D_val]":
+            return self.get_all_ensemble_combinations_on_deviations(t=t)["z"].var(ddof=0 if bias else 1)
+
+    def approximate_true_parameters_in_iid_setting_by_sampling(self, t, n=2, seed=None, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1):
+        """
+            This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
+            This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
+        
+        Args:
+            deviation_matrices (_type_): _description_
+            n (_type_): _description_
+            t (_type_): _description_
+            num_samples (_type_, optional): _description_. Defaults to 10**4.
+        """
+        num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
+        print(f"Computing ground truth with {num_sub_jobs} parallelized jobs.")
+
+        def collect_scores_for_job(seed):
+
+            # create random state
+            random_state = np.random.RandomState(seed)
+
+            # sample dataset indices
+            datasets = random_state.randint(0, self.deviations.shape[1], size=(num_samples_per_job, n))
+            
+            # sample ensembles
+            scores = []
+            for dataset in tqdm(datasets):
+                deviations_on_dataset = self.deviations[:, dataset]
+                ensemble_descriptors_through_indices = random_state.randint(0, deviations_on_dataset.shape[0], size=t)
+                ensemble_member_deviations = deviations_on_dataset[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + deviations_on_dataset.shape[1:])
+                z = (ensemble_member_deviations.mean(axis=0)**2).mean(axis=0).sum()
+                scores.append(z)
+            return scores
+        
+        if n_jobs != 1 and num_sub_jobs > 1:
+            results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x) for x in range(num_sub_jobs))
+        else:
+            results = [collect_scores_for_job(x) for x in range(num_sub_jobs)]
+        scores = np.concatenate(results)
+        return np.mean(scores), np.var(scores, ddof=0)
+
     def get_all_ensemble_combinations_on_deviations(self, t, compute_deviations=False):
+        """
+            Computes a table with one row for every possible ensemble if `t` ensemble members are allowed.
+            The last column `z` contains the score of that ensemble on the previously given deviations.
+
+        Returns:
+            _type_: _description_
+        """
         
         num_possible_ensembles = len(self.deviations)**t
         n = self.deviations[0].shape[0]

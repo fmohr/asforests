@@ -174,14 +174,29 @@ class MixedMomentBuilder:
         self._cov = None
         self.m4_ = None
         self.n = 0
+        self.k = None
         self.biased_covariance_estimate = biased_covariance_estimate
+        self.other_shape = None
     
     @property
     def cov(self):
-        _cov = self._cov if self._cov is not None else 0
-        if np.all(_cov != 0) and self.biased_covariance_estimate:
-            _cov *= (self.n - 1) / self.n
-        return _cov
+        if self._cov is None:
+            return 0.0
+        
+        if not self.biased_covariance_estimate:
+            return self._cov
+        
+        # create biased copy
+        if isinstance(self._cov, (int, float, np.number)):
+            return self._cov * (self.n - 1) / self.n
+        else:
+            non_zero_mask = self.n != 0
+            _cov_biased = self._cov.copy()
+
+            # add bias to all covariances for which there is at least one entry
+            _cov_biased[non_zero_mask] *= (self.n - 1) / self.n
+            return _cov_biased
+        
 
     def add_observations(self, x_array, y_array, axis=0):
 
@@ -207,6 +222,12 @@ class MixedMomentBuilder:
         # compute covariance of new data (actually scatter, which is covariance except the division by the number of samples)
         means_x_2 = np.mean(x_array, axis=axis)
         means_y_2 = np.mean(y_array, axis=axis)
+        if self.other_shape is None:
+            self.other_shape = means_x_2.shape
+        else:
+            if self.other_shape != means_x_2.shape:
+                raise ValueError(f"Expected shape {self.other_shape} in dimensions other than the aggregated but found {means_x_2.shape}")
+        
         if len(x_array.shape) > 1:
             scatter_2 = np.einsum("nk,nk -> k", x_array - means_x_2, y_array - means_y_2)
         else:
@@ -214,8 +235,7 @@ class MixedMomentBuilder:
 
         # update covariance
         if n1 == 0:
-            self._cov = 0 if n2 == 1 else scatter_2 / (n2 - 1)
-            #assert np.all(np.isclose(self.cov, np.array([np.cov(x_array[:, j], y_array[:, j], rowvar=False)[0, 1] for j in range(3)])))
+            self._cov = (np.zeros(self.other_shape) if len (self.other_shape) > 1 else 0.0) if n2 == 1 else scatter_2 / (n2 - 1)
 
         else:
 

@@ -8,7 +8,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
 
     def __init__(
             self,
-            upper_bound_for_sample_size=10**6,
+            upper_bound_for_sample_size=10**8,
             population_mode="stream",
             single_data_point_per_ensemble_member=False,
             create_estimates_for_iid_scenario=True,
@@ -103,7 +103,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
                 deviation_row = deviation_matrix[idx].reshape(1, deviation_matrix.shape[1]).copy()
                 deviation_matrix[:] = np.nan
                 deviation_matrix[idx] = deviation_row
-            self.logger.debug("Adding deviation matrix to Ensemble Performance Estimator")
+            self.logger.debug(f"Adding {self.epa.t}-th deviation matrix to Ensemble Performance Estimator")
             self.epa.add_deviation_matrix(deviation_matrix)
 
         else:

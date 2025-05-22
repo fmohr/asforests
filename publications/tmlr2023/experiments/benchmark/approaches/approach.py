@@ -140,6 +140,7 @@ class TheoremBasedApproach(Approach, ABC):
 
     def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
         coeffiecients = self.get_xi_cov_coefficients_for_iid_scenario(t)
+        coeffiecients[10] = coeffiecients[11] = coeffiecients[13] = 0 # by theory, we know that these coefficients must be 0
         sum_of_covs = coeffiecients.T @ self.xi_covs_in_iid_setting
         return sum_of_covs / (2 * t**3) # divide by 2 since this is our n here (this applies to all terms, because also (n - 1) / n = 1 / 2 for n = 2)
     
@@ -161,6 +162,8 @@ class DeviationBasedApproach(TheoremBasedApproach):
         super().__init__(*args, **kwargs)
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
+        if self.y_oh is None:
+            raise RuntimeError(f"Ground truth targets not initialized. Check whether you called tell_ground_truth_labels.")
         dev = prediction_matrix - self.y_oh
         self.receive_deviations_of_new_ensemble_member(dev)
 
