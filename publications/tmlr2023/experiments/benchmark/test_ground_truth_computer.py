@@ -105,13 +105,17 @@ if __name__ == "__main__":
     print(f"True var is {true_var}")
     true_mean = gt.get_true_parameter("E[Z_nt]", t=t)
 
-    num_samples = 10**7
+    num_samples = 10**9
 
     # approximate ground truth
-    for n_jobs in [1, 2, 4, 8, 16, 32, 64, 128]:
+    for n_jobs in [16, 32, 64]:
         t_start = time()
         approx_mean, approx_var = gt.approximate_true_parameters_in_iid_setting_by_sampling(t=t, n=n, num_samples=num_samples, num_samples_per_job=int(np.ceil(num_samples / n_jobs)), n_jobs=n_jobs)
         t_end = time()
         print(f"finished after {t_end - t_start}s using {n_jobs} CPUs")
         true_std = np.sqrt(true_var)
         approx_std = np.sqrt(approx_var)
+        print(f"True mean is {true_mean}")
+        print(f"Approximated mean is {approx_mean}")
+        print(f"True std is {true_std}")
+        print(f"Approximated std is {approx_std}")
