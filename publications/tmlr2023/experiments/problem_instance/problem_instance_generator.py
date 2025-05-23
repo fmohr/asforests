@@ -36,6 +36,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, num_possible_ensemble_members, validation_instances_per_class):
 
+    logger = logging.getLogger("experimenter")
     filename = f"problem_instances/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances_per_class}.json"
     path = Path(filename)
     if path.exists():
@@ -67,7 +68,11 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     # compute ground truth
     num_samples = num_samples_allowed_for_ground_truth_approximation
     num_samples_per_job = int(np.ceil(num_samples / n_jobs))
+    logger.info(f"Starting ground truth approximation for problem instance {pi.to_dict()} using {num_samples} samples generated through {n_jobs} jobs.")
+    t_start = time.time()
     pi._approximate_ground_truth_parameters(num_samples=num_samples, num_samples_per_job=num_samples_per_job, n_jobs=n_jobs)
+    t_end = time.time()
+    logger.info(f"Overall time to approximate ground truth was {t_end - t_start}s")
 
     # dump instance
     d = pi.to_dict()
