@@ -11,8 +11,6 @@ import json
 
 import time
 
-N_JOBS=24
-
 def run_experiment(keyfields: dict, result_processor, custom_config):
 
     # define stream handler
@@ -91,9 +89,10 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        raise ValueError(f"Please specify exactly one argument (the job name).")
+    if len(sys.argv) != 3:
+        raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
     name = sys.argv[1]
+    N_JOBS = int(sys.argv[2])
 
     pe = PyExperimenter(
         name=name,
