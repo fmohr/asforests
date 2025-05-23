@@ -227,7 +227,13 @@ class ProblemInstance:
             y=self.y,
             train_indices=self._indices_train,
             seed=self.ensemble_seed,
-            num_matrices=self.num_possible_ensemble_members
+            num_matrices=self.num_possible_ensemble_members,
+            max_tries=100,
+            rf_kwargs={ # make trees very weak and random to maximize diversity in the ensemble (besides, this makes training faster)
+                "max_depth": 1,
+                "max_features": 1
+            },
+            logger=self.logger
         )
 
         # memorize prediction matrices

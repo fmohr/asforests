@@ -51,14 +51,14 @@ def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_
         if size_before == size_after:
             failed_tries += 1
             if logger is not None:
-                logger.info(f"Prediction matrix set stalled, trying new batch (# failed tries is now {failed_tries})")
+                logger.info(f"Prediction matrix set stalled at size {len(prediction_matrices)}, trying new batch (# failed tries is now {failed_tries})")
         else:
             if logger is not None:
-                logger.info(f"Prediction matrix set now size {len(prediction_matrices)} trees.")
+                logger.info(f"Prediction matrix set has now size {len(prediction_matrices)}.")
             failed_tries = 0
         
-        if len(prediction_matrices) < num_matrices:
-            raise RuntimeError(f"Could not create {num_matrices} different ensemble members but just {len(prediction_matrices)}")
+    if len(prediction_matrices) < num_matrices:
+        raise RuntimeError(f"Could not create {num_matrices} different ensemble members but just {len(prediction_matrices)}")
 
-        return np.array(prediction_matrices[:num_matrices]), classes
+    return np.array(prediction_matrices[:num_matrices]), classes
 

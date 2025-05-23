@@ -43,7 +43,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     # core configuration
     n_checkpoints=np.array([2, 10, 100, 1000])
     t_checkpoints=np.array([1, 2, 10, 100, 1000])
-    num_samples_allowed_for_ground_truth_approximation = 10**5
+    num_samples_allowed_for_ground_truth_approximation = NUM_SAMPLES
     n_jobs=N_JOBS
 
     #
@@ -60,7 +60,8 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         validation_size=len(np.unique(y)) * validation_instances_per_class,
         num_samples_allowed_for_ground_truth_approximation=num_samples_allowed_for_ground_truth_approximation,
         n_checkpoints=n_checkpoints,
-        t_checkpoints=t_checkpoints
+        t_checkpoints=t_checkpoints,
+        logger=logger
     )
 
     # compute ground truth
@@ -93,6 +94,7 @@ if __name__ == "__main__":
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
+    NUM_SAMPLES = 10**2
 
     pe = PyExperimenter(
         name=name,
