@@ -11,6 +11,8 @@ import json
 
 import time
 
+N_JOBS=24
+
 def run_experiment(keyfields: dict, result_processor, custom_config):
 
     # define stream handler
@@ -43,7 +45,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     n_checkpoints=np.array([2, 10, 100, 1000])
     t_checkpoints=np.array([1, 2, 10, 100, 1000])
     num_samples_allowed_for_ground_truth_approximation = 10**5
-    n_jobs=24
+    n_jobs=N_JOBS
 
     #
     X, y = fetch_openml(data_id=openmlid, return_X_y=True)
@@ -64,7 +66,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
     # compute ground truth
     num_samples = num_samples_allowed_for_ground_truth_approximation
-    num_samples_per_job = num_samples // n_jobs
+    num_samples_per_job = int(np.ceil(num_samples / n_jobs))
     pi._approximate_ground_truth_parameters(num_samples=num_samples, num_samples_per_job=num_samples_per_job, n_jobs=n_jobs)
 
     # dump instance
