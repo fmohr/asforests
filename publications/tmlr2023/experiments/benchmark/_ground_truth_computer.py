@@ -49,7 +49,8 @@ class GroundTruthComputer:
         if param == "V[Z_nt|D_val]":
             return self.get_all_ensemble_combinations_on_deviations(t=t)["z"].var(ddof=0 if bias else 1)
 
-    def approximate_true_parameters_in_iid_setting_by_sampling(self, t, n=2, seed=None, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1):
+    
+    def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1):
         """
             This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
             This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
@@ -60,33 +61,123 @@ class GroundTruthComputer:
             t (_type_): _description_
             num_samples (_type_, optional): _description_. Defaults to 10**4.
         """
+        if num_samples_per_job is None:
+            num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
         print(f"Computing ground truth with {num_sub_jobs} parallelized jobs.")
 
-        def collect_scores_for_job(seed):
+        if not isinstance(n_checkpoints, (list, np.ndarray)):
+            if not isinstance(n_checkpoints, (int, np.integer)):
+                raise ValueError(f"n_checkpoints must be an int or a list/np.ndarray thereof but is {type(n_checkpoints)}")
+            n_checkpoints = [n_checkpoints]
+        if not isinstance(t_checkpoints, (list, np.ndarray)):
+            if not isinstance(t_checkpoints, (int, np.integer)):
+                raise ValueError(f"t_checkpoints must be an int or a list/np.ndarray thereof but is {type(t_checkpoints)}")
+            t_checkpoints = [t_checkpoints]
+
+        def collect_scores_for_job(seed, n_checkpoints, t_checkpoints):
 
             # create random state
             random_state = np.random.RandomState(seed)
 
             # sample dataset indices
-            datasets = random_state.randint(0, self.deviations.shape[1], size=(num_samples_per_job, n))
+            datasets = random_state.randint(0, self.deviations.shape[1], size=(num_samples_per_job, max(n_checkpoints)))
             
-            # sample ensembles
+            # 
             scores = []
-            for dataset in tqdm(datasets):
-                deviations_on_dataset = self.deviations[:, dataset]
-                ensemble_descriptors_through_indices = random_state.randint(0, deviations_on_dataset.shape[0], size=t)
-                ensemble_member_deviations = deviations_on_dataset[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + deviations_on_dataset.shape[1:])
-                z = (ensemble_member_deviations.mean(axis=0)**2).mean(axis=0).sum()
-                scores.append(z)
-            return scores
+            max_t = max(t_checkpoints)
+            
+            empty_z_matrix = np.zeros((len(n_checkpoints), len(t_checkpoints)))
+
+            # define bookkeeping variables to manage the batch size
+            batch_size = 10**6 // max_t
+            num_batches = int(np.ceil(num_samples_per_job / batch_size))
+            remaining_samples = num_samples_per_job
+
+            # outer loop over batches
+            pbar = tqdm(total=num_samples_per_job)
+            for batch_idx in range(num_batches):
+
+                # extract datasets and ensemble definitions for this batch
+                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(min(batch_size, remaining_samples), max_t))
+                datasets_in_batch = datasets[batch_idx * batch_size: (batch_idx + 1) * batch_size]
+                for ensemble, dataset in zip(ensembles_in_batch, datasets_in_batch):
+
+                    # determine scores for n/t-sub-cases of this dataset/ensemble combination
+                    ensemble_member_deviations_on_dataset = self.deviations[np.ix_(ensemble, dataset)]
+                    z_matrix = empty_z_matrix.copy()
+                    for i, n in enumerate(n_checkpoints):
+                        for j, t in enumerate(t_checkpoints):
+                            z_matrix[i, j] = (ensemble_member_deviations_on_dataset[:t, :n].mean(axis=0)**2).mean(axis=0).sum()
+                    
+                    # add the determine z-values to the list
+                    scores.append(z_matrix)
+                    pbar.update(1)
+                remaining_samples -= ensembles_in_batch.shape[0]
+            pbar.close()
+            return np.array(scores)
         
         if n_jobs != 1 and num_sub_jobs > 1:
-            results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x) for x in range(num_sub_jobs))
+            results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs))
         else:
-            results = [collect_scores_for_job(x) for x in range(num_sub_jobs)]
+            results = [collect_scores_for_job(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs)]
         scores = np.concatenate(results)
-        return np.mean(scores), np.var(scores, ddof=0)
+        return np.mean(scores, axis=0), np.var(scores, axis=0, ddof=0)
+    
+    def approximate_true_parameters_in_cond_setting_by_sampling(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1):
+        """
+            This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
+            This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
+        
+        Args:
+            deviation_matrices (_type_): _description_
+            n (_type_): _description_
+            t (_type_): _description_
+            num_samples (_type_, optional): _description_. Defaults to 10**4.
+        """
+        if num_samples_per_job is None:
+            num_samples_per_job = num_samples
+        num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
+        print(f"Computing ground truth with {num_sub_jobs} parallelized jobs.")
+
+        if not isinstance(t_checkpoints, (list, np.ndarray)):
+            t_checkpoints = [t_checkpoints]
+
+        max_t = max(t_checkpoints)
+        def collect_scores_for_job(seed, t_checkpoints):
+
+            # create random state
+            random_state = np.random.RandomState(seed)
+            
+            # define bookkeeping variables to manage the batch size
+            batch_size = 10**6 // max_t
+            num_batches = int(np.ceil(num_samples_per_job / batch_size))
+            remaining_samples = num_samples_per_job
+
+            # outer loop over batches
+            pbar = tqdm(total=num_samples_per_job)
+            scores = []
+            for batch_idx in range(num_batches):
+
+                # extract datasets and ensemble definitions for this batch
+                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(min(batch_size, remaining_samples), max_t))
+                for ensemble in ensembles_in_batch:
+                    ensemble_member_deviations = self.deviations[ensemble]
+                    scores_for_seed = []
+                    for t in t_checkpoints:
+                        scores_for_seed.append((ensemble_member_deviations[:t].mean(axis=0)**2).mean(axis=0).sum())
+                    scores.append(scores_for_seed)
+                remaining_samples -= ensembles_in_batch.shape[0]
+                pbar.update(1)
+            pbar.close()
+            return np.array(scores)
+        
+        if n_jobs != 1 and num_sub_jobs > 1:
+            results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, t_checkpoints) for x in range(num_sub_jobs))
+        else:
+            results = [collect_scores_for_job(x, t_checkpoints) for x in range(num_sub_jobs)]
+        scores = np.concatenate(results)
+        return np.mean(scores, axis=0), np.var(scores, axis=0, ddof=0)
 
     def get_all_ensemble_combinations_on_deviations(self, t, compute_deviations=False):
         """

@@ -243,7 +243,7 @@ class EnsemblePerformanceAssessor:
         self.logger.info(f"Updating estimate of covariance terms for variance estimation.")
 
         # initialize moment builders
-        if self.mixed_moment_builders_for_conditional_xi_covs is None:
+        if self.estimate_performance_var_for_conditional_case and self.mixed_moment_builders_for_conditional_xi_covs is None:
             self.logger.debug("Initializing MixedMomentBuilders for conditional covs")
             self.mixed_moment_builders_for_conditional_xi_covs = np.array([
                 [
@@ -256,7 +256,7 @@ class EnsemblePerformanceAssessor:
                 for i2 in range(self.n)
             ])
         
-        if self.mixed_moment_builders_for_iid_xi_covs is None:
+        if self.estimate_performance_var_for_iid_case and self.mixed_moment_builders_for_iid_xi_covs is None:
             self.logger.debug("Initializing MixedMomentBuilders for iid covs")
             self.mixed_moment_builders_for_iid_xi_covs = np.array([
                 [

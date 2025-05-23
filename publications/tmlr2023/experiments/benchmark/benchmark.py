@@ -1,16 +1,10 @@
 import numpy as np
-import pandas as pd
-import openml
+
 from time import time
 
 import logging
 
-from sklearn.model_selection import ShuffleSplit, StratifiedShuffleSplit
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OrdinalEncoder
+
 
 
 import os
@@ -20,7 +14,6 @@ import itertools as it
 from tqdm import tqdm
 
 from experiments.benchmark.result_storage import ResultStorage
-from experiments.benchmark._util import get_unique_prediction_matrices
 from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach # used to compute ground truths as this is much more efficient than the naive way
 
 
@@ -51,9 +44,7 @@ class Benchmark:
         self._ensemble_seed = ensemble_seed
         self._ensemble_sequence_seed = ensemble_sequence_seed
         self._ensemble_prefix = ensemble_prefix
-        self._num_possible_ensemble_members = num_possible_ensemble_members
-        self._training_instances_per_class = training_instances_per_class
-        self._validation_size = validation_size
+        
         self._is_classification = is_classification
         self.logger = logging.getLogger("benchmark")
         self.captured_parameters = captured_parameters
@@ -63,15 +54,6 @@ class Benchmark:
         self.track_used_resources = track_used_resources
 
         # state variables
-        if X is None:
-            self._X = self._y = None
-        else:
-            self._X = X
-            self._y = y
-        self._indices_train = self._indices_val = self._indices_oos = None
-        self._deviations = None
-        self._true_parameters = None
-        self._prediction_matrix_generator = None
         self._approaches = None
         self._t_checkpoints = None
         self._t = None
@@ -164,125 +146,8 @@ class Benchmark:
     @property
     def result_storage(self):
         return self._result_storage
-    
-    def _get_mandatory_preprocessing(self, X, y):
-        
-        # determine fixed pre-processing steps for imputation and binarization
-        types = [set([type(v) for v in r]) for r in X.T]
-        numeric_features = [c for c, t in enumerate(types) if len(t) == 1 and list(t)[0] != str]
-        numeric_transformer = Pipeline([("imputer", SimpleImputer(strategy="median"))])
-        categorical_features = [i for i in range(X.shape[1]) if i not in numeric_features]
-        missing_values_per_feature = np.sum(pd.isnull(X), axis=0)
-        self.logger.info(f"There are {len(categorical_features)} categorical features, which will be turned into integers.")
-        self.logger.info(f"Missing values for the different attributes are {missing_values_per_feature}.")
-        if len(categorical_features) > 0 or sum(missing_values_per_feature) > 0:
-            categorical_transformer = Pipeline([
-                ("imputer", SimpleImputer(strategy="most_frequent")),
-                ("binarizer", OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)),
-            ])
-            return [("impute_and_binarize", ColumnTransformer(
-                transformers=[
-                    ("num", numeric_transformer, numeric_features),
-                    ("cat", categorical_transformer, categorical_features),
-                ]
-                ))]
-        else:
-            return []
 
-    def _load_data(self):
-        """
-        Creates the three-fold split into training, validation, and out-of-sample data
-        :return:
-        """
 
-        if self._X is None:
-            ds = openml.datasets.get_dataset(
-                self.openmlid,
-                download_data=False,
-                download_qualities=False,
-                download_features_meta_data=False
-            )
-            df = ds.get_data()[0]
-
-            # prepare data with label encoding for categorical attributes
-            self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
-            self._y = np.array(df[ds.default_target_attribute].values)
-        label_count = {}
-        if self._y.dtype != int:
-            y_int = np.zeros(len(self._y)).astype(int)
-            vals = np.unique(self._y)
-            for i, val in enumerate(vals):
-                mask = self._y == val
-                label_count[val] = np.count_nonzero(mask)
-                y_int[mask] = i
-            self._y = y_int
-        else:
-            vals = np.unique(self._y)
-            for i, val in enumerate(vals):
-                label_count[val] = np.count_nonzero(self._y == val)
-
-        # partition the given data into train, validation, and out-of-sample data
-        self.logger.info(f"Label count: {label_count}")
-        minority_class = min(list(label_count.keys()), key=label_count.get)
-
-        training_size_relative = self.training_instances_per_class / label_count[minority_class]
-        self.logger.info(f"Using {np.round(training_size_relative * 100, 2)}% of the  data for training")
-
-        rs_data = np.random.RandomState(self._data_seed)
-        splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size)
-        validation_indices, rest_indices = next(splitter_val.split(self.X, self.y))
-        splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=training_size_relative) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=training_size_relative)
-        train_indices, oos_indices = next(splitter_rest.split(self.X[rest_indices], self.y[rest_indices]))
-        train_indices = rest_indices[train_indices]
-        oos_indices = rest_indices[oos_indices]
-        train_indices.sort(), oos_indices.sort(), validation_indices.sort()
-        assert len(set(train_indices) | set(validation_indices) | set(oos_indices)) == len(self.X)
-        self._indices_train = train_indices
-        self._indices_val = validation_indices
-        self._indices_oos = oos_indices
-
-        # check whether we need to overwrite the data
-        preprocessing = self._get_mandatory_preprocessing(self._X, self._y)
-        if preprocessing:
-            pl = Pipeline(preprocessing)
-            self.logger.info(f"Modifying inputs with {pl}")
-            pl.fit(self.X_train, self.y_train)
-            self._X = pl.transform(self._X)
-
-    def _compute_predictions_and_deviations(self):
-        if self._deviations is not None:
-            self.logger.info(f"Warning: deviations have already been computed, skipping.")
-            return
-        
-        # send log message
-        self.logger.info(f"Computing predictions and deviations of all possible ensemble members.")
-        t_start = time()
-
-        # compute 3D tensor with all deviations of all ensemble members on all data points
-        prediction_matrices, classes = get_unique_prediction_matrices(
-            X=self.X,
-            y=self.y,
-            train_indices=self._indices_train,
-            seed=self._ensemble_seed,
-            num_matrices=self._num_possible_ensemble_members
-        )
-
-        # memorize prediction matrices
-        indices = [classes.index(i) for i in self.y]
-        self.y_oh = np.eye(len(classes))[indices]
-        self._predictions = np.array(prediction_matrices[:self._num_possible_ensemble_members])
-        assert self._predictions.shape == (self._num_possible_ensemble_members, self.X.shape[0], self.y_oh.shape[1])
-        if np.any(np.isnan(self._predictions)):
-            raise ValueError(f"predictions have nan entries: {self._predictions}")
-        self._deviations = self._predictions - self.y_oh
-        if np.any(np.isnan(self._deviations)):
-            raise ValueError(f"deviations have nan entries: {self._deviations}")
-
-        # check that predictions of ensembles are pairwise different
-        for i, p1 in enumerate(self._predictions):
-            for j, p2 in enumerate(self._predictions[:i]):
-                assert not np.all(np.isclose(p1, p2)), f"Predictions of ensemble member {i} and {j} are identical."
-        self.logger.info(f"Prediction and deviation computation finished after {int(1000 * (time() - t_start))}ms.")    
     
     def reset(self, approaches: dict, t_checkpoints: list, ensemble_sequence_seed: int = None):
 

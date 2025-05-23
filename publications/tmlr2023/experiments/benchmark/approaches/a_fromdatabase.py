@@ -33,13 +33,29 @@ class DatabaseWiseApproach(DeviationBasedApproach):
             upper_bound_for_sample_size=self.upper_bound_for_sample_size,
             population_mode=self.population_mode,
             execute_asserts=False,
-            estimate_performance_var_for_iid_case="V[Z_nt]" in self.estimated_parameters,
-            estimate_performance_var_for_conditional_case="V[Z_nt|D_val]" in self.estimated_parameters,
+            estimate_performance_var_for_iid_case=self.estimating_iid_variance,
+            estimate_performance_var_for_conditional_case=self.estimating_conditional_variance,
             max_number_of_xi_terms_to_include_in_update=10**8,
             logger=self.logger
         )
         if not self.create_estimates_for_iid_scenario:  # maybe we only need this
             self.deviation_matrices = []
+    
+    @property
+    def estimating_conditional_variance(self):
+        return "V[Z_nt|D_val]" in self.estimated_parameters
+    
+    @property
+    def estimating_iid_variance(self):
+        return "V[Z_nt]" in self.estimated_parameters
+    
+    @property
+    def estimating_conditional_mean(self):
+        return "E[Z_nt|D_val]" in self.estimated_parameters
+    
+    @property
+    def estimating_iid_mean(self):
+        return "E[Z_nt]" in self.estimated_parameters
         
     @property
     def deviation_means_in_conditional_setting(self):
