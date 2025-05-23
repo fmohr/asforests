@@ -207,7 +207,7 @@ def test_ground_truth_approximation():
     n_checkpoints=np.array([2, 10, 20])
     t_checkpoints=np.array([2, 10, 20])
 
-    num_samples_allowed_for_ground_truth_approximation = 10**5
+    num_samples_allowed_for_ground_truth_approximation = 10**6
 
     # create problem instance
     pis = ProblemInstance(

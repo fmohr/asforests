@@ -68,6 +68,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     num_samples = num_samples_allowed_for_ground_truth_approximation
     num_samples_per_job = int(np.ceil(num_samples / n_jobs))
     logger.info(f"Starting ground truth approximation for problem instance {pi.to_dict()} using {num_samples} samples generated through {n_jobs} jobs.")
+    logger.info(f"Number of samples per job is {num_samples_per_job}")
     t_start = time.time()
     pi._approximate_ground_truth_parameters(num_samples=num_samples, num_samples_per_job=num_samples_per_job, n_jobs=n_jobs)
     t_end = time.time()
@@ -94,7 +95,7 @@ if __name__ == "__main__":
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
-    NUM_SAMPLES = 10**5
+    NUM_SAMPLES = 10**2
 
     pe = PyExperimenter(
         name=name,

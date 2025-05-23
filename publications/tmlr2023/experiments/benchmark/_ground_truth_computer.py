@@ -4,6 +4,8 @@ from tqdm import tqdm
 import numpy as np
 from joblib import Parallel, delayed
 
+import logging
+
 
 def int_to_vector(num, base, d):
     vec = [0] * d
@@ -32,8 +34,9 @@ def draw_unique_vectors_floyd(rs, num_samples, vector_length, max_index):
 
 class GroundTruthComputer:
 
-    def __init__(self, deviations):
+    def __init__(self, deviations, logger=None):
         self.deviations = deviations
+        self.logger = logger if logger is not None else logging.getLogger(f"{self.__module__}.{self.__class__.__name__}")
 
     def get_true_parameter(self, param, t, n=None, bias=True):
         if param == "E[Z_nt]":
@@ -50,7 +53,7 @@ class GroundTruthComputer:
             return self.get_all_ensemble_combinations_on_deviations(t=t)["z"].var(ddof=0 if bias else 1)
 
     
-    def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1):
+    def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
         """
             This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
             This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
@@ -64,7 +67,6 @@ class GroundTruthComputer:
         if num_samples_per_job is None:
             num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
-        print(f"Computing ground truth with {num_sub_jobs} parallelized jobs.")
 
         if not isinstance(n_checkpoints, (list, np.ndarray)):
             if not isinstance(n_checkpoints, (int, np.integer)):
@@ -74,48 +76,46 @@ class GroundTruthComputer:
             if not isinstance(t_checkpoints, (int, np.integer)):
                 raise ValueError(f"t_checkpoints must be an int or a list/np.ndarray thereof but is {type(t_checkpoints)}")
             t_checkpoints = [t_checkpoints]
+        
+        # check biggest values for n and t requested
+        max_t = max(t_checkpoints)
+        max_n = max(n_checkpoints)
+        
+        # define bookkeeping variables to manage the batch size
+        batch_size = max(1, max_entries_in_batch_matrix // max(max_t * self.deviations.shape[1] * self.deviations.shape[2], max_n))
+        num_batches = int(np.ceil(num_samples_per_job / batch_size))
+        n_bar = num_batches * len(t_checkpoints) * len(n_checkpoints)
+
+        self.logger.info(
+            f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
+            f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints) * len(n_checkpoints)} n-t-combinations. "
+            f"Sample values will be determine {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
+            f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations.")
+        
 
         def collect_scores_for_job(seed, n_checkpoints, t_checkpoints):
 
             # create random state
             random_state = np.random.RandomState(seed)
 
-            # sample dataset indices
-            datasets = random_state.randint(0, self.deviations.shape[1], size=(num_samples_per_job, max(n_checkpoints)))
-            
-            # 
-            scores = []
-            max_t = max(t_checkpoints)
-            
-            empty_z_matrix = np.zeros((len(n_checkpoints), len(t_checkpoints)))
-
-            # define bookkeeping variables to manage the batch size
-            batch_size = 10**6 // max_t
-            num_batches = int(np.ceil(num_samples_per_job / batch_size))
-            remaining_samples = num_samples_per_job
-
             # outer loop over batches
-            pbar = tqdm(total=num_samples_per_job)
+            score_matrix = np.zeros((num_batches, batch_size, len(n_checkpoints), len(t_checkpoints)))
+            pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
                 # extract datasets and ensemble definitions for this batch
-                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(min(batch_size, remaining_samples), max_t))
-                datasets_in_batch = datasets[batch_idx * batch_size: (batch_idx + 1) * batch_size]
-                for ensemble, dataset in zip(ensembles_in_batch, datasets_in_batch):
+                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(batch_size, max_t))
+                datasets_in_batch = random_state.randint(0, self.deviations.shape[1], size=(batch_size, max_n))
 
-                    # determine scores for n/t-sub-cases of this dataset/ensemble combination
-                    ensemble_member_deviations_on_dataset = self.deviations[np.ix_(ensemble, dataset)]
-                    z_matrix = empty_z_matrix.copy()
+                # compute the instance-wise value of Z_nt for all ensemble sizes simultaneously
+                for j, t in enumerate(t_checkpoints):
+                    ensemble_errors_on_instances = (self.deviations[ensembles_in_batch[:, :t]].mean(axis=1)**2).sum(axis=2)
                     for i, n in enumerate(n_checkpoints):
-                        for j, t in enumerate(t_checkpoints):
-                            z_matrix[i, j] = (ensemble_member_deviations_on_dataset[:t, :n].mean(axis=0)**2).mean(axis=0).sum()
-                    
-                    # add the determine z-values to the list
-                    scores.append(z_matrix)
-                    pbar.update(1)
-                remaining_samples -= ensembles_in_batch.shape[0]
+                        row_indices = np.arange(batch_size)[:, None]
+                        score_matrix[batch_idx, :, i, j] = ensemble_errors_on_instances[row_indices, datasets_in_batch[:, :n]].mean(axis=1)
+                        pbar.update(1)
             pbar.close()
-            return np.array(scores)
+            return score_matrix.reshape(-1, *score_matrix.shape[2:])
         
         if n_jobs != 1 and num_sub_jobs > 1:
             results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs))
@@ -124,7 +124,7 @@ class GroundTruthComputer:
         scores = np.concatenate(results)
         return np.mean(scores, axis=0), np.var(scores, axis=0, ddof=0)
     
-    def approximate_true_parameters_in_cond_setting_by_sampling(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1):
+    def approximate_true_parameters_in_cond_setting_by_sampling(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
         """
             This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
             This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
@@ -138,39 +138,45 @@ class GroundTruthComputer:
         if num_samples_per_job is None:
             num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
-        print(f"Computing ground truth with {num_sub_jobs} parallelized jobs.")
-
+        
         if not isinstance(t_checkpoints, (list, np.ndarray)):
+            if not isinstance(t_checkpoints, (int, np.integer)):
+                raise ValueError(f"t_checkpoints must be an int or a list/np.ndarray thereof but is {type(t_checkpoints)}")
             t_checkpoints = [t_checkpoints]
-
+        
+        # check biggest values for n and t requested
         max_t = max(t_checkpoints)
+        
+        # define bookkeeping variables to manage the batch size
+        batch_size = max(1, max_entries_in_batch_matrix // (max_t * self.deviations.shape[1] * self.deviations.shape[2]))
+        num_batches = int(np.ceil(num_samples_per_job / batch_size))
+        n_bar = num_batches * len(t_checkpoints)
+
+        self.logger.info(
+            f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
+            f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints)} t-checkpoints. "
+            f"Sample values will be determine {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
+            f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations.")
+
         def collect_scores_for_job(seed, t_checkpoints):
 
             # create random state
             random_state = np.random.RandomState(seed)
-            
-            # define bookkeeping variables to manage the batch size
-            batch_size = 10**6 // max_t
-            num_batches = int(np.ceil(num_samples_per_job / batch_size))
-            remaining_samples = num_samples_per_job
 
             # outer loop over batches
-            pbar = tqdm(total=num_samples_per_job)
-            scores = []
+            score_matrix = np.zeros((num_batches, batch_size, len(t_checkpoints)))
+            pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
                 # extract datasets and ensemble definitions for this batch
-                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(min(batch_size, remaining_samples), max_t))
-                for ensemble in ensembles_in_batch:
-                    ensemble_member_deviations = self.deviations[ensemble]
-                    scores_for_seed = []
-                    for t in t_checkpoints:
-                        scores_for_seed.append((ensemble_member_deviations[:t].mean(axis=0)**2).mean(axis=0).sum())
-                    scores.append(scores_for_seed)
-                remaining_samples -= ensembles_in_batch.shape[0]
-                pbar.update(1)
+                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(batch_size, max_t))
+
+                # compute the instance-wise value of Z_nt for all ensemble sizes simultaneously
+                for j, t in enumerate(t_checkpoints):
+                    score_matrix[batch_idx, :, j] = (self.deviations[ensembles_in_batch[:, :t]].mean(axis=1)**2).mean(axis=1).sum(axis=1)
+                    pbar.update(1)
             pbar.close()
-            return np.array(scores)
+            return score_matrix.reshape(-1, *score_matrix.shape[2:])
         
         if n_jobs != 1 and num_sub_jobs > 1:
             results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, t_checkpoints) for x in range(num_sub_jobs))

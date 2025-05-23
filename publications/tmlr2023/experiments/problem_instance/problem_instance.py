@@ -260,7 +260,7 @@ class ProblemInstance:
             num_samples = self.num_samples_allowed_for_ground_truth_approximation
 
         # approximate ground truth for iid case
-        gtc_iid = GroundTruthComputer(deviations=self.deviations)
+        gtc_iid = GroundTruthComputer(deviations=self.deviations, logger=self.logger)
         self._true_means_for_iid_case, self._true_vars_for_iid_case = gtc_iid.approximate_true_parameters_in_iid_setting_by_sampling(
             n_checkpoints=self.n_checkpoints,
             t_checkpoints=self.t_checkpoints,
@@ -270,7 +270,7 @@ class ProblemInstance:
         )
 
         # compute exact ground truth for conditional case
-        gtc_cond = GroundTruthComputer(deviations=self.deviations[:, self._indices_val])
+        gtc_cond = GroundTruthComputer(deviations=self.deviations[:, self._indices_val], logger=self.logger)
         self._true_means_for_cond_case, self._true_vars_for_cond_case = gtc_cond.approximate_true_parameters_in_cond_setting_by_sampling(
             t_checkpoints=self.t_checkpoints,
             num_samples=num_samples,
