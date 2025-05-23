@@ -95,7 +95,7 @@ if __name__ == "__main__":
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
-    NUM_SAMPLES = 10**2
+    NUM_SAMPLES = 10**6
 
     pe = PyExperimenter(
         name=name,
