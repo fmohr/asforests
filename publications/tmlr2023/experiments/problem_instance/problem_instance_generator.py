@@ -97,6 +97,8 @@ if __name__ == "__main__":
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**6
 
+    time.sleep(np.random.randint(0, 60))
+
     pe = PyExperimenter(
         name=name,
         use_codecarbon=False,
