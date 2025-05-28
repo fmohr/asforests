@@ -14,6 +14,7 @@ from time import time
 from experiments.benchmark._util import get_unique_prediction_matrices
 from experiments.benchmark._ground_truth_computer import GroundTruthComputer
 
+
 class ProblemInstance:
 
     def __init__(
@@ -29,6 +30,7 @@ class ProblemInstance:
             n_checkpoints,
             t_checkpoints,
             logger=None,
+            y_oh=None,
             predictions=None,
             deviations=None,
             true_means_for_iid_case=None,
@@ -47,11 +49,12 @@ class ProblemInstance:
         self.data_seed = data_seed
         self.ensemble_seed = ensemble_seed
         self.num_samples_allowed_for_ground_truth_approximation = num_samples_allowed_for_ground_truth_approximation
-        self.t_checkpoints = t_checkpoints
-        self.n_checkpoints = n_checkpoints
+        self.t_checkpoints = np.asarray(t_checkpoints).reshape(-1)
+        self.n_checkpoints = np.asarray(n_checkpoints).reshape(-1)
 
         # state vars
-        self._X = self._y = self._y_oh = None
+        self._X = self._y = None
+        self._y_oh = np.array(y_oh) if type(y_oh) == list else y_oh
         self._indices_train = self._indices_val = self._indices_oos = None
         self._predictions = predictions
         self._deviations = deviations
@@ -60,6 +63,10 @@ class ProblemInstance:
         self._true_means_for_cond_case = true_means_for_cond_case
         self._true_vars_for_cond_case = true_vars_for_cond_case
         self._prediction_matrix_generator = None
+
+        # sanity check
+        if self._predictions is not None:
+            assert len(self._predictions.shape) == 3, f"Predictions should have dimensionality 3 but has dimensionality {len(self._predictions.shape)}"
 
     @property
     def X(self):
@@ -81,13 +88,34 @@ class ProblemInstance:
     def y_oh(self):
         if self._y_oh is None:
             self._compute_predictions_and_deviations()
+            assert self._y_oh is not None, "Computation of y_oh failed"
+        assert type(self._y_oh) == np.ndarray, f"_y_oh should be a numpy array but is {type(self._y_oh)}"
         return self._y_oh
+    
+    @property
+    def y_oh_val(self):
+        y_oh = self.y_oh
+        if self._indices_val is None:
+            self._load_data()
+        assert type(y_oh) == np.ndarray, f"_y_oh should be a numpy array but is {type(y_oh)}"
+        return y_oh[self._indices_val]
     
     @property
     def predictions(self):
         if self._predictions is None:
             self._compute_predictions_and_deviations()
+            assert self._y_oh is not None, "Computation of predictions failed"
+        assert type(self._predictions) == np.ndarray, f"predictions should be a numpy array but are {type(self._predictions)}"
+        assert (self.num_possible_ensemble_members, ) + self.y_oh.shape == self._predictions.shape, f"Predictions should have shape {(self.num_possible_ensemble_members, ) + self.y_oh.shape} but has shape {self._predictions.shape}"
         return self._predictions
+    
+    @property
+    def predictions_val(self):
+        predictions = self.predictions
+        assert type(predictions) == np.ndarray, f"predictions should be a numpy array but are {type(predictions)}"
+        if self._indices_val is None:
+            self._load_data()
+        return predictions[:, self._indices_val]
     
     @property
     def deviations(self):
@@ -96,28 +124,58 @@ class ProblemInstance:
         return self._deviations
 
     @property
+    def deviations_val(self):
+        if self._indices_val is None:
+            self._load_data()
+        return self.deviations[:, self._indices_val]
+
+    @property
     def means_iid(self):
         if self._true_means_for_iid_case is None:
-            self._approximate_ground_truth_parameters()
+            if self.exact_ground_truth_feasible:
+                self._compute_exact_ground_truth_iid()
+            else:
+                self._approximate_ground_truth_parameters()
+        assert self._true_means_for_iid_case is not None, "E[Z_nt] was not computed or approximated."
         return self._true_means_for_iid_case
     
     @property
     def vars_iid(self):
-        if self._true_vars_for_iid_case is None:
-            self._approximate_ground_truth_parameters()
+        if self._true_means_for_iid_case is None:
+            if self.exact_ground_truth_feasible:
+                self._compute_exact_ground_truth_iid()
+            else:
+                self._approximate_ground_truth_parameters()
+        assert self._true_vars_for_iid_case is not None, "V[Z_nt] was not computed or approximated."
         return self._true_vars_for_iid_case
     
     @property
     def means_cond(self):
-        if self._true_means_for_cond_case is None:
-            self._approximate_ground_truth_parameters()
+        if self._true_means_for_iid_case is None:
+            if self.exact_ground_truth_feasible:
+                self._compute_exact_ground_truth_cond()
+            else:
+                self._approximate_ground_truth_parameters()
+        assert self._true_means_for_cond_case is not None, "E[Z_nt|D_val] was not computed or approximated."
         return self._true_means_for_cond_case
     
     @property
     def vars_cond(self):
-        if self._true_vars_for_cond_case is None:
-            self._approximate_ground_truth_parameters()
+        if self._true_means_for_iid_case is None:
+            if self.exact_ground_truth_feasible:
+                self._compute_exact_ground_truth_cond()
+            else:
+                self._approximate_ground_truth_parameters()
+        assert self._true_vars_for_cond_case is not None, "V[Z_nt|D_val] was not computed or approximated."
         return self._true_vars_for_cond_case
+
+    @property
+    def required_samples_for_exact_ground_truth_computation(self):
+        return self.X.shape[0]**2 * self.num_possible_ensemble_members**4
+
+    @property
+    def exact_ground_truth_feasible(self):
+        return self.required_samples_for_exact_ground_truth_computation <= self.num_samples_allowed_for_ground_truth_approximation
 
     def _get_mandatory_preprocessing(self, X, y):
         
@@ -252,9 +310,40 @@ class ProblemInstance:
             for j, p2 in enumerate(self._predictions[:i]):
                 assert not np.all(np.isclose(p1, p2)), f"Predictions of ensemble member {i} and {j} are identical."
         self.logger.info(f"Prediction and deviation computation finished after {int(1000 * (time() - t_start))}ms.")    
+    
+    def _compute_exact_ground_truth_iid(self):
+
+        from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach
+
+        # iid case
+        a = DatabaseWiseApproach(
+            estimated_parameters=["E[Z_nt]", "V[Z_nt]"],
+            upper_bound_for_sample_size=self.num_samples_allowed_for_ground_truth_approximation
+        )
+        a.reset()
+        a.tell_ground_truth_labels(self.y_oh)
+        for m in self.predictions:
+            a.receive_predictions_of_new_ensemble_member(m)
+        self._true_means_for_iid_case = a.estimate_performance_mean_in_iid_setup(t=self.t_checkpoints)
+        self._true_vars_for_iid_case = a.estimate_performance_var_in_iid_setup(n=self.n_checkpoints, t=self.t_checkpoints)
+    
+    def _compute_exact_ground_truth_cond(self):
+
+        from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach
+
+        # conditional case
+        a = DatabaseWiseApproach(
+            estimated_parameters=["E[Z_nt|D_val]", "V[Z_nt|D_val]"],
+            upper_bound_for_sample_size=self.num_samples_allowed_for_ground_truth_approximation
+        )
+        a.reset()
+        a.tell_ground_truth_labels(self.y_oh_val)
+        for m in self.predictions_val:
+            a.receive_predictions_of_new_ensemble_member(m)
+        self._true_means_for_cond_case = a.estimate_performance_mean_in_conditional_setup(t=self.t_checkpoints)
+        self._true_vars_for_cond_case = a.estimate_performance_var_in_conditional_setup(t=self.t_checkpoints)
 
     def _approximate_ground_truth_parameters(self, num_samples=None, num_samples_per_job=None, n_jobs=1):
-
 
         if num_samples is None:
             num_samples = self.num_samples_allowed_for_ground_truth_approximation
@@ -268,6 +357,7 @@ class ProblemInstance:
             num_samples_per_job=num_samples_per_job,
             n_jobs=n_jobs
         )
+        self._true_means_for_iid_case = self._true_means_for_iid_case[0]
 
         # compute exact ground truth for conditional case
         gtc_cond = GroundTruthComputer(deviations=self.deviations[:, self._indices_val], logger=self.logger)
@@ -277,10 +367,27 @@ class ProblemInstance:
             num_samples_per_job=num_samples_per_job,
             n_jobs=n_jobs
         )
+    
+    def get_prediction_matrix_id_generator(self, ensemble_sequence_seed=None):
+        prediction_generator_rs = np.random.RandomState(ensemble_sequence_seed)
+        def f():
+            while True:
+                yield prediction_generator_rs.randint(0, len(self.predictions))
+        return f()
+    
+    def get_prediction_matrix_generator(self, ensemble_sequence_seed=None, only_validation_data=False):
+        id_gen = self.get_prediction_matrix_id_generator(ensemble_sequence_seed=ensemble_sequence_seed)
+        def f():
+            while True:
+                matrix = self.predictions[next(id_gen)]
+                if only_validation_data:
+                    matrix = matrix[self._indices_val]
+                yield matrix
+        return f()
 
     def to_dict(self):
         out = {
-            "data_description": self.data_description,
+            "data_description": self.data_description if type(self.data_description) == int else (self.data_description[0].tolist(), self.data_description[1].tolist()),
             "is_classification": self.is_classification,
             "data_seed": self.data_seed,
             "ensemble_seed": self.ensemble_seed,
@@ -292,6 +399,8 @@ class ProblemInstance:
             "t_checkpoints": self.t_checkpoints.tolist() if self.t_checkpoints is not None else None
         }
         
+        if self._y_oh is not None:
+            out["y_oh"] = self._deviations.tolist()
         if self._deviations is not None:
             out["deviations"] = self._deviations.tolist()
         if self._true_means_for_iid_case is not None:
@@ -306,6 +415,8 @@ class ProblemInstance:
 
     @classmethod
     def from_dict(cls, dict):
+        if "data_description" in dict and type(dict["data_description"]) == list:
+            dict["data_description"] = tuple([np.array(d) for d in dict["data_description"]])
         for field in ["n_checkpoints", "t_checkpoints", "true_means_for_iid_case", "true_vars_for_iid_case", "true_means_for_cond_case", "true_vars_for_cond_case"]:
             if field in dict:
                 dict[field] = np.array(dict[field])

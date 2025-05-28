@@ -3,12 +3,15 @@ import numpy as np
 from .approach import DeviationBasedApproach
 from asforests import EnsemblePerformanceAssessor
 
+import logging
+
 
 class DatabaseWiseApproach(DeviationBasedApproach):
 
     def __init__(
             self,
             upper_bound_for_sample_size=10**8,
+            max_number_of_xi_terms_to_include_in_update=10**8,
             population_mode="stream",
             single_data_point_per_ensemble_member=False,
             create_estimates_for_iid_scenario=True,
@@ -16,6 +19,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
             ):
         super().__init__(**kwargs)
         self.upper_bound_for_sample_size = upper_bound_for_sample_size
+        self.max_number_of_xi_terms_to_include_in_update = max_number_of_xi_terms_to_include_in_update
         self.population_mode = population_mode
         self.single_data_point_per_ensemble_member = single_data_point_per_ensemble_member
         self.create_estimates_for_iid_scenario = create_estimates_for_iid_scenario
@@ -33,10 +37,14 @@ class DatabaseWiseApproach(DeviationBasedApproach):
             upper_bound_for_sample_size=self.upper_bound_for_sample_size,
             population_mode=self.population_mode,
             execute_asserts=False,
+            estimate_deviation_mean=self.estimating_iid_mean,
+            estimate_deviation_var=self.estimating_iid_mean,
+            estimate_deviation_covs=self.estimating_iid_mean,
             estimate_performance_var_for_iid_case=self.estimating_iid_variance,
             estimate_performance_var_for_conditional_case=self.estimating_conditional_variance,
-            max_number_of_xi_terms_to_include_in_update=10**8,
-            logger=self.logger
+            max_number_of_xi_terms_to_include_in_update=self.max_number_of_xi_terms_to_include_in_update,
+            random_state=self.random_state,
+            logger=logging.getLogger(f"{self.logger.name}.epa")
         )
         if not self.create_estimates_for_iid_scenario:  # maybe we only need this
             self.deviation_matrices = []

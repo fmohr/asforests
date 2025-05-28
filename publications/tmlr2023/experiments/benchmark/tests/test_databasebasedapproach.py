@@ -10,8 +10,9 @@ from sklearn.datasets import make_classification
 from sklearn.model_selection import StratifiedShuffleSplit
 from experiments.benchmark._util import get_unique_prediction_matrices
 
-from unittest import TestCase
+from experiments.benchmark.tests.util import ApproachTestClass
 from parameterized import parameterized
+import unittest
 
 import itertools as it
 
@@ -30,8 +31,19 @@ logger.handlers.clear()
 logger.addHandler(ch)
 logger.setLevel(logging.DEBUG)
 
+# configure logger for tester
+approach_logger = logging.getLogger("tested_approach")
+approach_logger.handlers.clear()
+approach_logger.addHandler(ch)
+approach_logger.setLevel(logging.WARNING)
 
-class TestDatabaseBasedApproach(TestCase):
+epa_logger = logging.getLogger("tested_approach.epa")
+epa_logger.handlers.clear()
+epa_logger.addHandler(ch)
+epa_logger.setLevel(logging.ERROR)
+
+
+class TestDatabaseBasedApproach(ApproachTestClass):
 
     """
         This test checks whether the database-based approach is able to *exactly* determine the true parameters (both conditional and unconditional)
@@ -66,6 +78,15 @@ class TestDatabaseBasedApproach(TestCase):
 
         self.t_checkpoints = np.arange(1, 6)
     
+    def get_approach(self, seed, estimated_parameters):
+        return DatabaseWiseApproach(
+            estimated_parameters=estimated_parameters,
+            population_mode="stream",
+            random_state=seed,
+            upper_bound_for_sample_size=10**4,
+            logger=approach_logger
+        )
+
     def get_run_approach(self, param):
         a = DatabaseWiseApproach(estimated_parameters=[param], population_mode="stream")
         a.reset()
@@ -116,10 +137,12 @@ class TestDatabaseBasedApproach(TestCase):
         # run approach
         a = self.get_run_approach(param)
         
-        for t in self.t_checkpoints:
+        mu_pred_array = a.estimate_performance_mean_in_iid_setup(t=self.t_checkpoints)
+        for t, mu_pred_from_array in zip(self.t_checkpoints, mu_pred_array):
             true_mean = self.gtc.get_true_parameter(param=param, t=t)
             pred_mean = a.estimate_performance_mean_in_iid_setup(t=np.array([t]))[0]
             self.assertAlmostEqual(true_mean, pred_mean, msg=f"Final prediciton for E[Z_n,{t}] is not correct.")
+            self.assertEqual(mu_pred_from_array, pred_mean)
 
     def test_correct_estimation_of_mean_in_conditional_setup(self):
 
@@ -128,12 +151,14 @@ class TestDatabaseBasedApproach(TestCase):
         # run approach
         a = self.get_run_approach(param)
 
-        # compare predicted (and stored) variance with true variance
-        for t in self.t_checkpoints:
+        # compare predicted (and stored) mean with true mean
+        mu_pred_array = a.estimate_performance_mean_in_conditional_setup(t=self.t_checkpoints)
+        for t, mu_pred_from_array in zip(self.t_checkpoints, mu_pred_array):
             mu_act = self.gtc.get_true_parameter(param=param, t=t)
 
             mu_pred = a.estimate_performance_mean_in_conditional_setup(t=np.array([t]))[0]
             self.assertAlmostEqual(mu_act, mu_pred, msg=f"Final variance prediciton for E[Z_n,{t}|D_val] is not correct.")
+            self.assertEqual(mu_pred_from_array, mu_pred)
 
     def test_correct_estimation_of_variances_in_iid_setup(self):
 
@@ -155,10 +180,14 @@ class TestDatabaseBasedApproach(TestCase):
             self.assertAlmostEqual(cov, predicted_covs[c], msg=f"Wrong estimate for case {c}")
         
         # compare predicted (and stored) variance with true variance (on iid samples from the validation data as population)
-        for t in self.t_checkpoints:
-            true_var = self.gtc.get_true_parameter(param=param, n=2, t=t)
-            pred_var = a.estimate_performance_var_for_two_instances_in_iid_setup(t=np.array([t]))[0]
-            self.assertAlmostEqual(true_var, pred_var, msg=f"Final variance prediciton for V[Z_2,{t}] is not correct, but the covariance estimates are. So this is a matter of aggregation.")
+        n_checkpoints = np.array([2, 3])
+        v_pred_array = a.estimate_performance_var_in_iid_setup(n=n_checkpoints, t=self.t_checkpoints)
+        for n, var_predictions_for_n in zip(n_checkpoints, v_pred_array):
+            for t, v_pred_from_array in zip(self.t_checkpoints, var_predictions_for_n):
+                true_var = self.gtc.get_true_parameter(param=param, n=n, t=t)
+                pred_var = a.estimate_performance_var_in_iid_setup(n=np.array([n]), t=np.array([t]))[0, 0]
+                self.assertAlmostEqual(true_var, pred_var, msg=f"Final variance prediciton for V[Z_2,{t}] is not correct, but the covariance estimates are. So this is a matter of aggregation.")
+                self.assertEqual(v_pred_from_array, pred_var)
 
     def test_correct_estimation_of_variance_in_conditional_setup(self):
 
@@ -180,13 +209,15 @@ class TestDatabaseBasedApproach(TestCase):
             for c, cov in enumerate(covs):
                 self.assertAlmostEqual(cov, predicted_covs[i1 - 1, i2 - 1, c], msg=f"Wrong estimate for case {c} on instance pair {i1}/{i2}")
         
-        # compare predicted (and stored) variance with true variance
-        for t in self.t_checkpoints:
+        # compare predicted (and stored) variance with true variance, and make sure that result is the same as in vectorized one
+        v_pred_array = a.estimate_performance_var_in_conditional_setup(t=self.t_checkpoints)
+        for t, v_pred_from_array in zip(self.t_checkpoints, v_pred_array):
             v_act = self.gtc.get_true_parameter(param=param, t=t)
             v_pred = a.estimate_performance_var_in_conditional_setup(t=np.array([t]))[0]
             self.assertAlmostEqual(v_act, v_pred, msg=f"Final variance prediciton for V[Z_2,{t}|D_val] is not correct, but the covariance estimates are. So this is a matter of aggregation.")
+            self.assertEqual(v_pred_from_array, v_pred)
 
-
+    
     def test_approximation_quality_for_variance_in_iid_setting(self):
         return
 

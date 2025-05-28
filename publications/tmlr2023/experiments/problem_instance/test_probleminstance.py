@@ -1,10 +1,36 @@
 import pytest
 from experiments.problem_instance.problem_instance import ProblemInstance
+from experiments.benchmark._ground_truth_computer import GroundTruthComputer
 from sklearn.datasets import make_classification
 import numpy as np
 import itertools as it
 import json
 
+def get_standard_problem_instance(
+        n_classes=3,
+        n_samples=10**4,
+        n_features=20,
+        n_informative=10,
+        data_gen_seed=0,
+        data_seed=0,
+        ensemble_seed=0,
+        portion_validation=0.1,
+        portion_training = 0.1
+    ):
+    X, y = make_classification(n_classes=n_classes, n_samples=n_samples, n_features=n_features, n_informative=n_informative, random_state=data_gen_seed)
+
+    return ProblemInstance(
+        data_description=(X, y),
+        is_classification=True,
+        data_seed=data_seed,
+        ensemble_seed=ensemble_seed,
+        num_possible_ensemble_members=4,
+        training_instances_per_class=portion_training,
+        validation_size=portion_validation,
+        num_samples_allowed_for_ground_truth_approximation=0,
+        n_checkpoints=None,
+        t_checkpoints=None
+    )
 
 def check_loadability_of_base_properties(pi):
 
@@ -162,26 +188,9 @@ def test_proper_data_role_distribution_for_absolute_sizes():
 @pytest.mark.parametrize("seed", range(5))
 def test_reproducibility_from_seed(seed):
 
-    # get data
-    n_classes = 3
-    n_samples = 64
-    n_features = 20
-    X, y = make_classification(n_classes=n_classes, n_samples=n_samples, n_features=n_features, n_informative=n_features // 2, random_state=seed)
-
     # create two instances with same parameters
     pis = [
-        ProblemInstance(
-            data_description=(X, y),
-            is_classification=True,
-            data_seed=0,
-            ensemble_seed=seed,
-            num_possible_ensemble_members=4,
-            training_instances_per_class=0.75,
-            validation_size=0.25,
-            num_samples_allowed_for_ground_truth_approximation=0,
-            n_checkpoints=None,
-            t_checkpoints=None
-        )
+        get_standard_problem_instance(data_seed=seed, ensemble_seed=seed)
         for _ in range(2)
     ]
 
@@ -193,6 +202,50 @@ def test_reproducibility_from_seed(seed):
     assert np.array_equal(pi1.predictions, pi2.predictions)
     assert np.array_equal(pi1.deviations, pi2.deviations)
 
+
+def test_ground_truth_correctness_for_small_instances():
+
+    seed = 0
+
+    # get data
+    n_classes = 2
+    n_samples = 6
+    n_features = 20
+    X, y = make_classification(n_classes=n_classes, n_samples=n_samples, n_features=n_features, n_informative=n_features // 2, random_state=seed)
+
+    n = 2
+    t = 3
+
+    num_samples_allowed_for_ground_truth_approximation = 10**6
+
+    # create problem instance
+    pi = ProblemInstance(
+        data_description=(X, y),
+        is_classification=True,
+        data_seed=0,
+        ensemble_seed=seed,
+        num_possible_ensemble_members=4,
+        training_instances_per_class=2,
+        validation_size=2,
+        num_samples_allowed_for_ground_truth_approximation=num_samples_allowed_for_ground_truth_approximation,
+        n_checkpoints=n,
+        t_checkpoints=t
+    )
+    assert pi.exact_ground_truth_feasible, "ProblemInstances affirms that no ground truth can be computed for this problem."
+    
+    # iid case
+    gtc = GroundTruthComputer(pi.deviations)
+    true_mean = gtc.get_true_parameter("E[Z_nt]", t=t)
+    true_var = gtc.get_true_parameter("V[Z_nt]", t=t, n=n)
+    assert np.isclose(true_mean, pi.means_iid[0])
+    assert np.isclose(true_var, pi.vars_iid[0, 0])
+
+    # conditional case
+    gtc = GroundTruthComputer(pi.deviations_val)
+    true_mean = gtc.get_true_parameter("E[Z_nt|D_val]", t=t)
+    true_var = gtc.get_true_parameter("V[Z_nt|D_val]", t=t)
+    assert np.isclose(true_mean, pi.means_cond[0])
+    assert np.isclose(true_var, pi.vars_cond[0])
 
 def test_ground_truth_approximation():
     
@@ -222,16 +275,15 @@ def test_ground_truth_approximation():
         n_checkpoints=n_checkpoints,
         t_checkpoints=t_checkpoints
     )
+    assert not pis.exact_ground_truth_feasible, "Problem is too easy and can be solved directly."
 
     # approximate population
     pis._approximate_ground_truth_parameters(num_samples_per_job=num_samples_allowed_for_ground_truth_approximation // 10, n_jobs=2)
 
-    # check that E[Z_nt] values are reasonable and consistent (and independent of n)
-    assert (len(n_checkpoints), len(t_checkpoints)) == pis.means_iid.shape
+    # check that E[Z_nt] values are reasonable and consistent (decrease in t)
+    assert (len(t_checkpoints), ) == pis.means_iid.shape
     prev_mean = np.inf
-    for i in range(len(t_checkpoints)):
-        assert np.round(pis.means_iid[:, i].min(), 2) == np.round(pis.means_iid[:, i].max(), 2) # independency of value of n
-        mean_for_t = pis.means_iid[:, i].mean()
+    for t, mean_for_t in zip(t_checkpoints, pis.means_iid):
         assert mean_for_t < prev_mean
         prev_mean = mean_for_t
 
@@ -251,3 +303,42 @@ def test_ground_truth_approximation():
     assert (len(t_checkpoints), ) == pis.vars_cond.shape
     for i in range(len(t_checkpoints) - 1):
         assert pis.vars_cond[i] > pis.vars_cond[i + 1]
+
+def test_that_ground_truth_values_are_sensitive_to_change_in_data_seed():
+
+    pis = [
+        get_standard_problem_instance(data_seed=seed)
+        for seed in range(2)
+    ]
+
+    # check equality
+    pi1, pi2 = pis
+    assert np.array_equal(pi1.X, pi2.X)
+    assert np.array_equal(pi1.y, pi2.y)
+    assert np.array_equal(pi1.y_oh, pi2.y_oh)
+    assert pi1.validation_size == pi2.validation_size
+    assert np.any(pi1._indices_train != pi2._indices_train)
+    assert np.any(pi1._indices_val != pi2._indices_val)
+    assert np.any(pi1._indices_oos != pi2._indices_oos)
+    assert not np.array_equal(pi1.predictions, pi2.predictions) # data seed influences which data is used for training
+    assert not np.array_equal(pi1.deviations, pi2.deviations) # naturally the deviations also change
+
+
+def test_that_ground_truth_values_are_sensitive_to_change_in_ensemble_seed():
+
+    pis = [
+        get_standard_problem_instance(ensemble_seed=seed)
+        for seed in range(2)
+    ]
+
+    # check equality
+    pi1, pi2 = pis
+    assert np.array_equal(pi1.X, pi2.X)
+    assert np.array_equal(pi1.y, pi2.y)
+    assert np.array_equal(pi1.y_oh, pi2.y_oh)
+    assert pi1.validation_size == pi2.validation_size
+    assert np.all(pi1._indices_train == pi2._indices_train)
+    assert np.all(pi1._indices_val == pi2._indices_val)
+    assert np.all(pi1._indices_oos == pi2._indices_oos)
+    assert not np.array_equal(pi1.predictions, pi2.predictions) # data seed influences which data is used for training
+    assert not np.array_equal(pi1.deviations, pi2.deviations) # naturally the deviations also change

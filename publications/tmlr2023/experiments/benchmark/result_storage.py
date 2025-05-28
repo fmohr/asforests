@@ -1,39 +1,33 @@
 import numpy as np
 import pandas as pd
 import json
-import collections.abc
+from io import StringIO
 
 
 class ResultStorage:
 
-    def __init__(self, true_param_values, approach_names, t_checkpoints, estimates=None, runtimes=None):
-        for p, v in true_param_values.items():
-            if len(v) != len(t_checkpoints):
-                raise ValueError(f"Shape of ground truth of {p} should be {expected_shape} but is {v.shape}")
-        
+    def __init__(self, true_param_values, n_checkpoints, t_checkpoints, results=None, precision=7):
         self._true_param_values = true_param_values
-        self._approach_names = approach_names
+        for p, v in true_param_values.items():
+            if p == "V[Z_nt]":
+                if len(v.shape) != 2:
+                    raise ValueError(f"Expected 2D ground truth for {p} but got something of shape {v.shape}: {v}")
+            else:
+                if len(v.shape) != 1:
+                    raise ValueError(f"Expected 1D ground truth for {p} but got something of shape {v.shape}: {v}")
+            
+            expected_shape = (len(n_checkpoints), len(t_checkpoints)) if p == "V[Z_nt]" else (len(t_checkpoints), )
+            if v.shape != expected_shape:
+                raise ValueError(f"Shape of ground truth of {p} should be {expected_shape} but is {v.shape}: {v}")
+                
+        self._n_checkpoints = [int(n) for n in n_checkpoints]
         self._t_checkpoints = [int(t) for t in t_checkpoints]
-        self._budgets = set()
+        self._precision = precision
 
         # self.estimates[p][a][t][b] will contain the estimate for parameter p obtained from approach a for ensemble size t when b ensembles were trained (budget)
-        self._estimates = {}
-        self._runtimes = {}
-        for a in approach_names:
-            self._estimates[a] = {}
-            self._runtimes[a] = {}
-            
-            if estimates is not None:
-                assert runtimes is not None, "if estimates are given, runtimes must not be None"
-                for b in estimates[a]:
-                    self.add_estimates(approach_name=a, budget=b, estimates_per_checkpoint=estimates[a][b], runtimes=runtimes[a][b])
-
-        # add known budgets
-        if estimates is not None:
-            for a, estimates_for_a in estimates.items():
-                for b in estimates_for_a.keys():
-                    assert isinstance(b, int), f"Budget '{b}' is not an integer and hence not a valid budget."
-                    self._budgets.add(b)
+        self._results = None
+        if results is not None:
+            self.add_results(results)
 
     @property
     def true_param_values(self):
@@ -41,25 +35,38 @@ class ResultStorage:
     
     @property
     def approach_names(self):
-        return self._approach_names
+        return sorted(pd.unique(self._results["approach"])) if self._results is not None else []
+    
+    @property
+    def n_checkpoints(self):
+        return self._n_checkpoints
     
     @property
     def t_checkpoints(self):
         return self._t_checkpoints
+
+    @property
+    def results(self):
+        return self._results
     
     @property
     def budgets(self):
-        return self._budgets
+        return set(pd.unique(self._results["budget"])) if self._results is not None else set()
+
+    @property
+    def precision(self):
+        return self._precision
     
     def serialize(self, f=None):
 
         d = {
-            "true_param_values": {p: [v for v in l] for p, l in self._true_param_values.items()},
-            "approach_names": self._approach_names,
+            "true_param_values": {p: l.tolist() for p, l in self._true_param_values.items()},
+            "n_checkpoints": [int(n) for n in self._n_checkpoints],
             "t_checkpoints": [int(t) for t in self._t_checkpoints],
-            "estimates": self._estimates,
-            "runtimes": self._runtimes
+            "results": self._results.to_json(orient="records") if self._results is not None else None,
+            "precision": self.precision
         }
+        print(d["results"])
 
         if f is None:
 
@@ -79,6 +86,16 @@ class ResultStorage:
         else:
             data = json.load(src, object_pairs_hook=convert_keys_to_int)
         
+        data["results"] = pd.read_json(StringIO(data["results"]))
+        data["results"]["n"] = data["results"]["n"].astype("Int64")
+        data["results"]["n"] = data["results"]["n"].replace({pd.NA: None, np.nan: None})
+        data["true_param_values"] = {
+            k: np.array(v)
+            for k, v in data["true_param_values"].items()
+        }
+        data["results"]["estimate"] = np.round(data["results"]["estimate"], data["precision"])
+        data["results"]["runtime"] = np.round(data["results"]["runtime"], data["precision"])
+        
         return cls(**data)
 
     @classmethod
@@ -88,16 +105,22 @@ class ResultStorage:
             raise ValueError(f"Need at least two result storages to merge.")
 
         # check that checkpoints coincide
+        n_checkpoints = None
         t_checkpoints = None
         true_param_values = None
         for s in stores:
             if t_checkpoints is None:
+                n_checkpoints = s.n_checkpoints
                 t_checkpoints = s.t_checkpoints
                 true_param_values = s.true_param_values
             else:
                 if len(t_checkpoints) != len(s.t_checkpoints):
                     raise ValueError("Cannot merge results storages with different checkpoints")
                 if np.any(t_checkpoints != s.t_checkpoints):
+                    raise ValueError("Cannot merge results storages with different checkpoints")
+                if len(n_checkpoints) != len(s.n_checkpoints):
+                    raise ValueError("Cannot merge results storages with different checkpoints")
+                if np.any(n_checkpoints != s.n_checkpoints):
                     raise ValueError("Cannot merge results storages with different checkpoints")
                 for param in true_param_values:
                     if np.any(true_param_values[param] != s.true_param_values[param]):
@@ -106,78 +129,116 @@ class ResultStorage:
             raise ValueError(f"Cannot merge result stores with None for true_param_value")
 
         # collect approach names
-        approach_names = set()
-        for s in stores:
-            approach_names |= set(s.approach_names)
-        approach_names = sorted(approach_names)
-
-        # merge estimates
-        estimates = {}
-        runtimes = {}
-        def deep_update(d, u):
-            for k, v in u.items():
-                if isinstance(v, collections.abc.Mapping) and k in d:
-                    deep_update(d[k], v)  # Recursive update for nested dictionaries
-                else:
-                    d[k] = v  # Overwrite for non-dictionaries
-            return d
-        for s in stores:
-            deep_update(estimates, s._estimates)
-            deep_update(runtimes, s._runtimes)
+        df_results = pd.concat([s._results for s in stores], axis=0)
         return ResultStorage(
-            approach_names=approach_names,
             true_param_values=true_param_values,
+            n_checkpoints=n_checkpoints,
             t_checkpoints=t_checkpoints,
-            estimates=estimates,
-            runtimes=runtimes
-            )
+            results=df_results
+        )
         
     
-    def add_estimates(self, approach_name, budget, estimates_per_checkpoint, runtimes):
-        
-        if budget not in self._budgets:
-            self._estimates[approach_name][budget] = {}
-            self._runtimes[approach_name][budget] = {}
-            self._budgets.add(budget)
+    def add_results(self, df):
+        for i, row in df.iterrows():
+            self.add_result(**row)
+    
+    def add_result(self, approach, budget, param, n, t, estimate, runtime):
 
-        if budget not in self._estimates[approach_name]:
-            self._estimates[approach_name][budget] = {}
+        if param =="V[Z_nt]":
+            if n not in self._n_checkpoints:
+                raise ValueError(f"Unsupported value for {n=}. Should be in {self._n_checkpoints}")
+        else:
+            if n is not None:
+                raise ValueError(f"no value of n should be given for parameters other than V[Z_nt] but saw {n=}")
+        if t not in self._t_checkpoints:
+            raise ValueError(f"Unsupported value for {t=}. Should be in {self._t_checkpoints}")
 
-        assert len(estimates_per_checkpoint) == len(self._t_checkpoints), f"Expected a dictionary with {len(self._t_checkpoints)} entries, one for each check point, but received {len(estimates_per_checkpoint)}"
-        for t, estimates_for_t in estimates_per_checkpoint.items():                
-            if t not in self._estimates[approach_name][budget]:
-                self._estimates[approach_name][budget][t] = {}
-            for p, e in estimates_for_t.items():
-                self._estimates[approach_name][budget][t][p] = float(e)
+        key_cols = ["approach", "budget", "param", "n", "t"]
+        val_cols = ["estimate", "runtime"]
+        all_cols = key_cols + val_cols
+        new_record = [approach, budget, param, n, t, estimate, runtime]
+        new_recored_dict = {k: v for k, v in zip(all_cols, new_record)}
+        if self._results is not None and np.any(np.all(self._results[key_cols].values == np.array([new_recored_dict[k] for k in key_cols]), axis=1)):
+            red_dict = {k: new_recored_dict[k] for k in key_cols}
+            raise ValueError(f"Double entry for record {red_dict}.")
         
-        self._runtimes[approach_name][budget] = runtimes
+        new_df = pd.DataFrame([new_record], columns=all_cols)
+        self._results = new_df if self._results is None else pd.concat([self._results, new_df])
     
     def rename_approach(self, n_from, n_to):
-        i = self.approach_names.index(n_from)
-        self.approach_names[i] = n_to
-        self._estimates[n_to] = self._estimates[n_from]
-        self._runtimes[n_to] = self._runtimes[n_from]
-        del self._estimates[n_from]
-        del self._runtimes[n_from]
+        self._results.loc[self._results["approach"] == n_from, "approach"] = n_to
     
-    def get_estimates_from_approach_for_checkpoint(self, approach_name, t):
-        results = []
-        budgets = []
-        for budget, estimates_for_budget in self._estimates[approach_name].items():
-            budgets.append(budget)
-            results.append(estimates_for_budget[t])
-        return pd.DataFrame(results, index=budgets)
+    def get_results_from_approach_for_checkpoint(self, approach_name, n_for_var_in_iid_case=None, t=None):
+        
+        # get all relevant n and t checkpoints
+        if n_for_var_in_iid_case is not None:
+            if not isinstance(n_for_var_in_iid_case, (list, np.ndarray)):
+                n_for_var_in_iid_case = [n_for_var_in_iid_case]
+        else:
+            n_for_var_in_iid_case = self._n_checkpoints
+        
+        if t is not None:
+            if not isinstance(t, (list, np.ndarray)):
+                t = [t]
+        else:
+            t = self.t_checkpoints
+        
+        return self._results[
+            (self._results["approach"] == approach_name) &
+            (self._results["n"] is None or self._results["n"].isin(n_for_var_in_iid_case)) &
+            (self._results["t"].isin(t))
+        ]
     
-    def get_ground_truth_param_for_checkpoint(self, t):
-        t_index = self._t_checkpoints.index(t)
-        return {p: v[t_index] for p, v in self._true_param_values.items()}
+    def get_ground_truth_param_for_checkpoint(self, n_for_var_in_iid_case=None, t=None):
+        
+        # get all relevant n and t checkpoints
+        if n_for_var_in_iid_case is not None:
+            if not isinstance(n_for_var_in_iid_case, (list, np.ndarray)):
+                n_for_var_in_iid_case = [n_for_var_in_iid_case]
+        else:
+            n_for_var_in_iid_case = self._n_checkpoints
+        
+        if t is not None:
+            if not isinstance(t, (list, np.ndarray)):
+                t = [t]
+        else:
+            t = self.t_checkpoints
+        
+        out = {}
+        for p, v in self._true_param_values.items():
+            t_indices = [self._t_checkpoints.index(u) for u in t]
+            if p == "V[Z_nt]":
+                n_indices = [self._n_checkpoints.index(u) for u in n_for_var_in_iid_case]
+                out[p] = v[n_indices, t_indices].reshape(len(n_indices), len(t_indices))
+            else:
+                out[p] = v[t_indices]
+        return out
 
+    def get_errors_from_approach_for_checkpoint(self, approach_name, n_for_var_in_iid_case=None, t=None):
+        
+        # get all relevant n and t checkpoints
+        if n_for_var_in_iid_case is not None:
+            if not isinstance(n_for_var_in_iid_case, (list, np.ndarray)):
+                n_for_var_in_iid_case = [n_for_var_in_iid_case]
+        else:
+            n_for_var_in_iid_case = self._n_checkpoints
+        
+        if t is not None:
+            if not isinstance(t, (list, np.ndarray)):
+                t = [t]
+        else:
+            t = self.t_checkpoints
 
-    def get_errors_from_approach_for_checkpoint(self, approach_name, t):
-        estimates = self.get_estimates_from_approach_for_checkpoint(approach_name=approach_name, t=t)
-        true_values_for_checkpoint = self.get_ground_truth_param_for_checkpoint(t=t)
-        errors = {
-            col: estimates[col].apply(lambda e: e - true_values_for_checkpoint[col])
-            for col in estimates.columns
-        }
-        return pd.DataFrame(errors, index=estimates.index)
+        estimates = self.get_results_from_approach_for_checkpoint(approach_name=approach_name, n_for_var_in_iid_case=n_for_var_in_iid_case, t=t).copy()
+        true_values_for_checkpoint = self.get_ground_truth_param_for_checkpoint(n_for_var_in_iid_case=n_for_var_in_iid_case, t=t)
+        def g(r):
+            pred = r["estimate"]
+            if r["param"] == "V[Z_nt]" and len(t) > 1:
+                act = true_values_for_checkpoint[r["param"]][n_for_var_in_iid_case.index(r["n"]), t.index(r["t"])]
+            else:
+                act = true_values_for_checkpoint[r["param"]][t.index(r["t"])]
+            return pred - act
+        
+
+        estimates["error"] = estimates.apply(g, axis=1)
+        return estimates

@@ -22,7 +22,7 @@ class EnsemblePerformanceAssessor:
             estimate_performance_var_for_iid_case=True,
             estimate_performance_var_for_conditional_case=True,
             max_number_of_xi_terms_to_include_in_update=10**5,
-            rs=None,
+            random_state=None,
             execute_asserts=False,
             enable_asserts=False, # only for debug mode since this slows down the code
             logger=None
@@ -38,9 +38,9 @@ class EnsemblePerformanceAssessor:
         # configuration
         self.population_mode = population_mode
         self.upper_bound_for_sample_size = upper_bound_for_sample_size
-        if rs is None:
-            rs = np.random.RandomState()
-        self.rs = rs
+        if random_state is None:
+            random_state = np.random.RandomState()
+        self.random_state = random_state
         self.estimate_deviation_mean = estimate_deviation_mean
         self.estimate_deviation_var = estimate_deviation_var
         self.estimate_deviation_covs = estimate_deviation_covs
@@ -65,6 +65,7 @@ class EnsemblePerformanceAssessor:
         self.mixed_moment_builder = None
         self.mixed_moment_builders_for_conditional_xi_covs = None
         self.mixed_moment_builders_for_iid_xi_covs = None
+        self.xi_terms = None
         self.xi_database = None
         self.num_included_term_pairs = 0
         self.data_points_processed_for_cov_estimate = 0
@@ -198,7 +199,7 @@ class EnsemblePerformanceAssessor:
                 if self.population_mode == "resample_no_replacement" and len(observations_unified_across_members) < self.upper_bound_for_sample_size:
                     self.moment_builder.add_batch(observations_unified_across_members)
                 else:
-                    indices = [int(i) for i in self.rs.choice(
+                    indices = [int(i) for i in self.random_state.choice(
                         range(len(observations_unified_across_members)),
                         size=self.upper_bound_for_sample_size,
                         replace=(self.population_mode == "resample_with_replacement")
@@ -217,9 +218,9 @@ class EnsemblePerformanceAssessor:
                         if cnt >= self.upper_bound_for_sample_size:
                             break
                 elif self.population_mode == "resample_with_replacement":
-                    instance_indices = self.rs.choice(range(self.n), size=self.upper_bound_for_sample_size, replace=True)
+                    instance_indices = self.random_state.choice(range(self.n), size=self.upper_bound_for_sample_size, replace=True)
                     possible_pairs = list(it.combinations(range(len(self.deviation_matrices)), 2))
-                    pair_indices = self.rs.choice(
+                    pair_indices = self.random_state.choice(
                         range(len(possible_pairs)),
                         size=self.upper_bound_for_sample_size,
                         replace=True
@@ -239,8 +240,12 @@ class EnsemblePerformanceAssessor:
         if self.num_included_term_pairs > self.max_number_of_xi_terms_to_include_in_update:
             self.logger.info(f"Reached maximum number of estimates, ignoring new data.")
             return
+
         
-        self.logger.info(f"Updating estimate of covariance terms for variance estimation.")
+        self.logger.info(
+            "Updating estimate of covariance terms for variance estimation. "
+            f"{self.num_included_term_pairs} xi-term pair have been included, and {self.max_number_of_xi_terms_to_include_in_update} are allowed by configuration."
+        )
 
         # initialize moment builders
         if self.estimate_performance_var_for_conditional_case and self.mixed_moment_builders_for_conditional_xi_covs is None:
@@ -265,12 +270,11 @@ class EnsemblePerformanceAssessor:
                 ]
                 for instance_pair in ["11", "12"]
             ])
-            self.xi_terms = None
         
-        # compute new xi-terms
+        # compute new xi-terms that can be shaped thanks to the newly added ensemble member
         new_xi_terms = []
         n, t = self.n, self.t
-        self.logger.debug(f"Computing {n} new xi-terms")
+        self.logger.debug(f"Computing {n * (2*t - 1)} new xi-terms") # for each instance, it is one \xi_i^tt for the new ensemble member and (t-1) \xi_i^st for each previous ensemble member
         for i in range(n):
             other_s = self.t - 1
             if np.any(np.isnan(self.deviation_matrices[other_s][i])):
@@ -287,7 +291,7 @@ class EnsemblePerformanceAssessor:
         df_new_xi_terms["diff_member"] = ~df_new_xi_terms["same_member"]
         self.logger.info(f"Identified {len(df_new_xi_terms)} new xi-terms for the estimation. Creating combinations of those to estimate cov terms.")
 
-        # create table of all relevant xi terms, combining all seen (old and new) with the new ones    
+        # create table of all relevant *pairs* of xi terms, combining all seen (old and new) with the new ones    
         if self.xi_terms is None:
             if len(df_new_xi_terms)**2 > self.upper_bound_for_sample_size:
                 raise ValueError(f"Cannot create even initial xi-terms since these would be {len(df_new_xi_terms)**2} but the upper bound for the sample size is {self.upper_bound_for_sample_size}")
@@ -323,7 +327,7 @@ class EnsemblePerformanceAssessor:
                         df_new_xi_terms.merge(self.xi_terms, how="cross"),
                         df_new_xi_terms.merge(df_new_xi_terms, how="cross")
                     ])
-                    df_full_extension = df_full_extension.sample(num_resamples)
+                    df_full_extension = df_full_extension.sample(num_resamples, random_state=self.random_state)
                     self.logger.debug(f"Filling up with {len(df_full_extension)} xi pairs of unequal instances.")
                     df_full = pd.concat([df_full, df_full_extension])
 
@@ -371,7 +375,7 @@ class EnsemblePerformanceAssessor:
                 # now add observations for the case of unequal instances, but skip 3 of the cases, which we know have 0 values by theory
                 if c not in [3, 4, 6]:
                     if len(df_case) > self.max_number_of_xi_terms_to_include_in_update:
-                        df_case = df_case.sample(replace=False, n=self.max_number_of_xi_terms_to_include_in_update)
+                        df_case = df_case.sample(replace=False, n=self.max_number_of_xi_terms_to_include_in_update, random_state=self.random_state)
                         self.logger.debug(f"Using {len(df_case)} data points to update covariances for case {c}.")
 
                     self.mixed_moment_builders_for_iid_xi_covs[1, c].add_observations(df_case["xi_x"], df_case["xi_y"])
@@ -381,11 +385,13 @@ class EnsemblePerformanceAssessor:
             # add data for conditional case
             if self.estimate_performance_var_for_conditional_case:
                 t_start_update = time.time()
+                cnt = 0
                 for (i1, i2), df_sub in df_case.groupby(["i_x", "i_y"]):
                     self.mixed_moment_builders_for_conditional_xi_covs[i1, i2, c].add_observations(df_sub["xi_x"], df_sub["xi_y"])
+                    cnt += 1
                 t_end_update = time.time()
-                self.logger.debug(f"Update of covs for conditional case took {np.round(t_end_update - t_start_update, 6)}s")
+                self.logger.debug(f"Update of {cnt} covs for conditional case took {np.round(t_end_update - t_start_update, 6)}s")
 
         self.num_included_term_pairs += len(df_full)
         self.xi_terms = df_new_xi_terms if self.xi_terms is None else pd.concat([self.xi_terms, df_new_xi_terms], ignore_index=True)
-        self.logger.info(f"Finished update of covariance estimates.")
+        self.logger.info(f"Finished update of covariance estimates. Total number of used term pairs: {self.num_included_term_pairs}")

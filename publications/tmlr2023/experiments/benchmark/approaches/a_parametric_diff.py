@@ -170,30 +170,45 @@ class ParametricDifferenceModelApproach(Approach):
         self.logger.info("Successfully fitted model for the variance.")
 
     def estimate_performance_mean_in_iid_setup(self, t):
+        t = np.asarray(t).reshape(-1)
         if self._p_mean is None:
             self._estimate_params_for_mean()
         return self._p_mean[0] + self._p_mean[1] / t
     
     def estimate_performance_mean_in_conditional_setup(self, t):
+        t = np.asarray(t).reshape(-1)
         if self._p_mean is None:
             self._estimate_params_for_mean()
         return self._p_mean[0] + self._p_mean[1] / t
 
-    def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
+    def estimate_performance_var_in_iid_setup(self, n, t):
+        n = np.asarray(n).reshape(-1)
+        t = np.asarray(t).reshape(-1)
         if self._p_iidvar is None:
             self._estimate_params_for_iid_var()
-        return (
-            self._p_iidvar[0] / 2 +
-            self._p_iidvar[1] / (2 * t) +
-            self._p_iidvar[2] / (2 * t**2) +
-            self._p_iidvar[3] / (2 * t**3) +
-            self._p_iidvar[4] / t +
-            self._p_iidvar[5] / t**2 +
-            self._p_iidvar[6] / t**3
-        )
+        if not isinstance(t, np.ndarray):
+            if not isinstance(t, list):
+                t = [t]
+            t = np.array(t)
+        if not isinstance(n, np.ndarray):
+            if not isinstance(n, list):
+                n = [n]
+            n = np.array(n)
+        return np.maximum(0, np.array(
+            [
+                self._p_iidvar[0] / _n +
+                self._p_iidvar[1] / (_n * t) +
+                self._p_iidvar[2] / (_n * t**2) +
+                self._p_iidvar[3] / (_n * t**3) +
+                self._p_iidvar[4] / t +
+                self._p_iidvar[5] / t**2 +
+                self._p_iidvar[6] / t**3
+                for _n in n
+            ]).reshape((len(n), len(t)))) # make sure to not return negative values
     
     def estimate_performance_var_in_conditional_setup(self, t):
+        t = np.asarray(t).reshape(-1)
         if self._p_cvar is None:
             self._estimate_params_for_conditional_var()
-        return self._p_cvar[0] + self._p_cvar[1] / t + self._p_cvar[2] / t**2 + self._p_cvar[3] / t**3
+        return np.maximum(0, self._p_cvar[0] + self._p_cvar[1] / t + self._p_cvar[2] / t**2 + self._p_cvar[3] / t**3) # make sure to not return negative values
         

@@ -34,16 +34,13 @@ class Approach(ABC):
     @abstractmethod
     def estimate_performance_mean_in_conditional_setup(self, t):
         raise NotImplementedError    
-
+    
     @abstractmethod
-    def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
+    def estimate_performance_var_in_iid_setup(self, n, t): # this is the only parameter where the n is given explicitly since in all other scenarios, it is either irrelevant or implicit by the given data
         raise NotImplementedError
     
     @abstractmethod
-    def estimate_performance_var_in_conditional_setup(self, t, n):
-        """
-            The n here is only a control parameter, because it could also be inferred from the prediction/deviation matrix size (which must coincide in this)
-        """
+    def estimate_performance_var_in_conditional_setup(self, t):
         raise NotImplementedError    
 
 
@@ -106,8 +103,9 @@ class TheoremBasedApproach(Approach, ABC):
         raise NotImplementedError
 
     def get_xi_cov_coefficients_for_conditional_scenario(self, t):
+        t = np.asarray(t).reshape(-1)
         return np.array([
-            np.ones(len(t)),
+            np.ones(t.shape[0]),
             (t-1) * 2,
             (t-1) * 4,
             (t-1),
@@ -122,29 +120,38 @@ class TheoremBasedApproach(Approach, ABC):
         return np.concatenate([c1, c2], axis=0)
 
     def estimate_performance_mean_in_iid_setup(self, t):
-        if isinstance(t, list):
-            t = np.array(t)
+        t = np.asarray(t).reshape(-1)
         return np.sum(self.deviation_means_in_iid_setting**2) + np.sum(self.deviation_vars_in_iid_setting) / t + (1 - 1/t) * np.sum(self.deviation_covs_in_iid_setting)
     
     def estimate_performance_mean_in_conditional_setup(self, t):
         """
             Here we can exploit the fact that, conditioned on specific data, the variances becomes independent across ensemble members
         """
-        if isinstance(t, list):
-            t = np.array(t)
+        t = np.asarray(t).reshape(-1)
         if self.deviation_means_in_conditional_setting is None:
             raise ValueError(f"deviation_means_in_conditional_setting is None for {self.__class__}")
         if self.deviation_means_in_conditional_setting.shape != self.y_oh.shape:
             raise ValueError(f"deviation_means_in_conditional_setting has wrong shape for {self.__class__}. Should be {self.y_oh.shape} but is {self.deviation_means_in_conditional_setting.shape}")
         return (self.deviation_means_in_conditional_setting**2).mean(axis=0).sum() + self.deviation_vars_in_conditional_setting.mean(axis=0).sum() / t
 
-    def estimate_performance_var_for_two_instances_in_iid_setup(self, t):
-        coeffiecients = self.get_xi_cov_coefficients_for_iid_scenario(t)
-        coeffiecients[10] = coeffiecients[11] = coeffiecients[13] = 0 # by theory, we know that these coefficients must be 0
-        sum_of_covs = coeffiecients.T @ self.xi_covs_in_iid_setting
-        return sum_of_covs / (2 * t**3) # divide by 2 since this is our n here (this applies to all terms, because also (n - 1) / n = 1 / 2 for n = 2)
+    def estimate_performance_var_in_iid_setup(self, n, t):
+        n = np.asarray(n).reshape(-1)
+        t = np.asarray(t).reshape(-1)
+        coeffiecients_for_different_t = self.get_xi_cov_coefficients_for_iid_scenario(t)
+        assert coeffiecients_for_different_t.shape == (14, len(t)), f"Incorrect shape for xi-coefficients. Should be {(14, len(t))} but is {coeffiecients_for_different_t.shape}"
+        coeffiecients_for_different_t[10] = coeffiecients_for_different_t[11] = coeffiecients_for_different_t[13] = 0 # by theory, we know that these coefficients must be 0
+        out= []
+        for _n in n:
+            out_for_n = []
+            for coefficients_for_t, _t in zip(coeffiecients_for_different_t.T, t):
+                weighted_cov_summands = coefficients_for_t * self.xi_covs_in_iid_setting
+                out_for_n.append(np.sum((weighted_cov_summands[:7] / _n + weighted_cov_summands[7:] * (_n - 1) / _n)) / _t**3)
+            out.append(out_for_n)
+        out = np.array(out)
+        return out
     
     def estimate_performance_var_in_conditional_setup(self, t):
+        t = np.asarray(t).reshape(-1)
         self.logger.info(f"Computing estimate of V[Z_nt|D_val] for {t=}.")
         coeffiecients = self.get_xi_cov_coefficients_for_conditional_scenario(t)
         covs = self.xi_covs_in_conditional_setting
