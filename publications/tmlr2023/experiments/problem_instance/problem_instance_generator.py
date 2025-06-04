@@ -119,14 +119,6 @@ if __name__ == "__main__":
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**2
 
-    run_experiment(keyfields={
-        "openmlid": 42746,
-        "data_seed": 0,
-        "num_possible_ensemble_members": 1,
-        "validation_instances": 2
-    }, result_processor=None, custom_config=None)
-    exit(0)
-
     time.sleep(np.random.randint(0, 30))
 
     pe = PyExperimenter(
