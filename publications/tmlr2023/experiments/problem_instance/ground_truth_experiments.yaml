@@ -23,7 +23,7 @@ PY_EXPERIMENTER:
           type: INT
           values:
             start: 0
-            stop: 1
+            stop: 10
             step: 1
         
         validation_instances:
