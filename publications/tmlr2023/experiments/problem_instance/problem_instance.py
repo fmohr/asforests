@@ -210,6 +210,7 @@ class ProblemInstance:
         if self._X is None:
             if type(self.data_description) in [int, np.integer]:
                 openmlid = self.data_description
+                self.logger.info(f"Retrieving dataset {openmlid} from openml.org")
                 ds = openml.datasets.get_dataset(
                     openmlid,
                     download_data=False,
@@ -217,10 +218,12 @@ class ProblemInstance:
                     download_features_meta_data=False
                 )
                 df = ds.get_data()[0]
+                self.logger.info(f"Done, separating X and y and making it a dense array.")
 
                 # prepare data with label encoding for categorical attributes
                 self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
                 self._y = np.array(df[ds.default_target_attribute].values)
+                self.logger.info(f"Data ready.")
             elif type(self.data_description) == tuple:
                 self._X, self._y = self.data_description
             else:
@@ -298,8 +301,10 @@ class ProblemInstance:
         )
 
         # memorize prediction matrices
-        indices = [classes.index(i) for i in self.y]
-        self._y_oh = np.eye(len(classes))[indices]
+        indices = [classes.index(i) if i in classes else -1 for i in self.y] # the -1 is for the last row, where all one-hot-values are 0
+        class_matrix = np.concatenate([np.eye(len(classes)), np.zeros((1, len(classes)))])
+        assert (len(classes) + 1, len(classes)) == class_matrix.shape
+        self._y_oh = class_matrix[indices]
         self._predictions = np.array(prediction_matrices[:self.num_possible_ensemble_members])
         assert self._predictions.shape == (self.num_possible_ensemble_members, self.X.shape[0], self._y_oh.shape[1])
         if np.any(np.isnan(self._predictions)):

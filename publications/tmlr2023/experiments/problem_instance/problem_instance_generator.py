@@ -47,9 +47,6 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     num_samples_allowed_for_ground_truth_approximation = NUM_SAMPLES
     n_jobs=N_JOBS
 
-    #
-    X, y = fetch_openml(data_id=openmlid, return_X_y=True)
-
     # get problem instance with 80% data out of sample (5% for training and a constant number for validation per class)
     pi = ProblemInstance(
         data_description=openmlid,
@@ -121,6 +118,14 @@ if __name__ == "__main__":
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**2
+
+    run_experiment(keyfields={
+        "openmlid": 42746,
+        "data_seed": 0,
+        "num_possible_ensemble_members": 1,
+        "validation_instances": 2
+    }, result_processor=None, custom_config=None)
+    exit(0)
 
     time.sleep(np.random.randint(0, 30))
 
