@@ -119,7 +119,7 @@ if __name__ == "__main__":
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**5
 
-    time.sleep(np.random.randint(0, 30))
+    time.sleep(np.random.randint(0, 120))
 
     pe = PyExperimenter(
         name=name,
