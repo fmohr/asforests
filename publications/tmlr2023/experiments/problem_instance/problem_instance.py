@@ -246,7 +246,7 @@ class ProblemInstance:
 
         # extract validation data
         rs_data = np.random.RandomState(self.data_seed)
-        splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size)
+        splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size) if self.is_classification and self.validation_size >= len(label_count) else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size)
         validation_indices, rest_indices = next(splitter_val.split(self.X, self.y))
 
         # separate training and out-of-sample data from the rest that is not validation
@@ -258,9 +258,12 @@ class ProblemInstance:
         oos_indices = rest_indices[oos_indices]
         train_indices.sort(), oos_indices.sort(), validation_indices.sort()
         assert len(set(train_indices) | set(validation_indices) | set(oos_indices)) == len(self.X)
+        assert self.validation_size == len(set(validation_indices))
         self._indices_train = train_indices
         self._indices_val = validation_indices
         self._indices_oos = oos_indices
+        assert self.validation_size == len(self._indices_val)
+        self.logger.info(f"Created split. {len(self._indices_train)}/{len(self._indices_val)}/{len(self._indices_oos)} instances are in train/val/oos folds respectively.")
 
         # check whether we need to overwrite the data
         preprocessing = self._get_mandatory_preprocessing(self._X, self._y)

@@ -30,13 +30,13 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         openmlid=int(keyfields["openmlid"]),
         data_seed=int(keyfields["data_seed"]),
         num_possible_ensemble_members=int(keyfields["num_possible_ensemble_members"]),
-        validation_instances_per_class=int(keyfields["validation_instances_per_class"])
+        validation_instances=int(keyfields["validation_instances"])
     )
 
-def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, num_possible_ensemble_members, validation_instances_per_class):
+def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, num_possible_ensemble_members, validation_instances):
 
     logger = logging.getLogger("experimenter")
-    filename = f"problem_instances/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances_per_class}.json"
+    filename = f"problem_instances/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances}.json"
     path = Path(filename)
     if path.exists():
         return
@@ -58,17 +58,20 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         ensemble_seed=0,
         num_possible_ensemble_members=num_possible_ensemble_members,
         training_instances_per_class=0.05,
-        validation_size=len(np.unique(y)) * validation_instances_per_class,
+        validation_size=validation_instances,
         num_samples_allowed_for_ground_truth_approximation=num_samples_allowed_for_ground_truth_approximation,
         n_checkpoints=n_checkpoints,
         t_checkpoints=t_checkpoints,
         logger=logger
     )
+    assert pi.predictions_val.shape[1] == validation_instances, f"Expected {validation_instances} validation instances, but ProblemInstance has {len(pi.predictions_val)}"
 
     # approximate ground truth for IID case
     num_samples = num_samples_allowed_for_ground_truth_approximation
     num_samples_per_job = int(np.ceil(num_samples / n_jobs))
-    logger.info(f"Starting ground truth approximation for problem instance using {num_samples} samples generated through {n_jobs} jobs.")
+    logger.info(
+        f"Starting ground truth approximation for dataset {openmlid} under {num_possible_ensemble_members} possible ensemble members and {validation_instances} validation instances per class using {num_samples} samples generated through {n_jobs} jobs."
+    )
     logger.info(f"Number of samples per job is {num_samples_per_job}")
     t_start = time.time()
     gtc_iid = GroundTruthComputer(deviations=pi.deviations, logger=logger)
@@ -99,7 +102,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     d["scores_cond"] = np.round(scores_cond, 4).tolist()
     d.pop("y_oh") # we don't want/need to serialize the ground truth labels
     d.pop("deviations") # we don't want/need to serialize the deviations
-    d["validation_instances_per_class"] = validation_instances_per_class # memorize this configuration for easier later comparison
+    d["validation_instances_per_class"] = validation_instances # memorize this configuration for easier later comparison
     path.parent.mkdir(exist_ok=True, parents=True)
     #print(d)
     with open(path, "w") as f:
@@ -117,9 +120,9 @@ if __name__ == "__main__":
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
-    NUM_SAMPLES = 10**4
+    NUM_SAMPLES = 10**2
 
-    #time.sleep(np.random.randint(0, 120))
+    time.sleep(np.random.randint(0, 30))
 
     pe = PyExperimenter(
         name=name,
