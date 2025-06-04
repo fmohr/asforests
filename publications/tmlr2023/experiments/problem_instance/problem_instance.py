@@ -400,7 +400,7 @@ class ProblemInstance:
         }
         
         if self._y_oh is not None:
-            out["y_oh"] = self._deviations.tolist()
+            out["y_oh"] = self.y_oh.tolist()
         if self._deviations is not None:
             out["deviations"] = self._deviations.tolist()
         if self._true_means_for_iid_case is not None:

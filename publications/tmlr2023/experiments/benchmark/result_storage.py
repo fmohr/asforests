@@ -163,7 +163,7 @@ class ResultStorage:
             raise ValueError(f"Double entry for record {red_dict}.")
         
         new_df = pd.DataFrame([new_record], columns=all_cols)
-        self._results = new_df if self._results is None else pd.concat([self._results, new_df])
+        self._results = new_df if self._results is None else pd.concat([self._results, new_df], ignore_index=True)
     
     def rename_approach(self, n_from, n_to):
         self._results.loc[self._results["approach"] == n_from, "approach"] = n_to
@@ -185,7 +185,7 @@ class ResultStorage:
         
         return self._results[
             (self._results["approach"] == approach_name) &
-            (self._results["n"] is None or self._results["n"].isin(n_for_var_in_iid_case)) &
+            (self._results["n"].isna() | self._results["n"].isin(n_for_var_in_iid_case)) &
             (self._results["t"].isin(t))
         ]
     
@@ -209,7 +209,7 @@ class ResultStorage:
             t_indices = [self._t_checkpoints.index(u) for u in t]
             if p == "V[Z_nt]":
                 n_indices = [self._n_checkpoints.index(u) for u in n_for_var_in_iid_case]
-                out[p] = v[n_indices, t_indices].reshape(len(n_indices), len(t_indices))
+                out[p] = v[n_indices][:, t_indices].reshape(len(n_indices), len(t_indices))
             else:
                 out[p] = v[t_indices]
         return out
@@ -230,15 +230,41 @@ class ResultStorage:
             t = self.t_checkpoints
 
         estimates = self.get_results_from_approach_for_checkpoint(approach_name=approach_name, n_for_var_in_iid_case=n_for_var_in_iid_case, t=t).copy()
-        true_values_for_checkpoint = self.get_ground_truth_param_for_checkpoint(n_for_var_in_iid_case=n_for_var_in_iid_case, t=t)
-        def g(r):
-            pred = r["estimate"]
-            if r["param"] == "V[Z_nt]" and len(t) > 1:
-                act = true_values_for_checkpoint[r["param"]][n_for_var_in_iid_case.index(r["n"]), t.index(r["t"])]
-            else:
-                act = true_values_for_checkpoint[r["param"]][t.index(r["t"])]
-            return pred - act
-        
-
-        estimates["error"] = estimates.apply(g, axis=1)
+        estimates["error"] = self.compute_error(estimates)
         return estimates
+    
+    def compute_error(self, df):
+
+        def _f(r):
+            pred = r["estimate"]
+            if r["param"] == "V[Z_nt]":
+                act = self._true_param_values[r["param"]][self.n_checkpoints.index(r["n"]), self.t_checkpoints.index(r["t"])]
+            else:
+                act = self._true_param_values[r["param"]][self.t_checkpoints.index(r["t"])]
+            return pred - act
+        return df.apply(_f, axis=1)
+
+    def get_errors_on_highest_budget(self, params=None):
+        out = []
+        for (approach, param, t), df_approach in self._results.groupby(["approach", "param", "t"]):
+            if param == "V[Z_nt]":
+                for n, df_approach in df_approach.groupby("n"):
+                    b = df_approach["budget"].max()
+                    df_approach = df_approach[df_approach["budget"] == b]
+                    assert len(df_approach) == 1
+                    row = df_approach.iloc[0]                    
+                    out.append([approach, b, param, n, t, row["estimate"], row["runtime"]])
+            else:
+                b = df_approach["budget"].max()
+                df_approach = df_approach[df_approach["budget"] == b]
+                assert len(df_approach) == 1
+                row = df_approach.iloc[0]
+                out.append([approach, b, param, None, t, row["estimate"], row["runtime"]])
+        df = pd.DataFrame(out, columns=["approach", "budget", "param", "n", "t", "estimate", "runtime"])
+        if params is not None:
+            df = df[df["param"].isin(params)]
+        df["error"] = self.compute_error(df)
+        return df
+
+
+

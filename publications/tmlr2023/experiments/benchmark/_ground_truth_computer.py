@@ -53,7 +53,7 @@ class GroundTruthComputer:
             return self.get_all_ensemble_combinations_on_deviations(t=t)["z"].var(ddof=0 if bias else 1)
 
     
-    def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
+    def sample_iid_scores(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
         """
             This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
             This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
@@ -82,7 +82,7 @@ class GroundTruthComputer:
         max_n = max(n_checkpoints)
         
         # define bookkeeping variables to manage the batch size
-        batch_size = max(1, max_entries_in_batch_matrix // max(max_t * self.deviations.shape[1] * self.deviations.shape[2], max_n))
+        batch_size = min(num_samples, max(1, max_entries_in_batch_matrix // max(max_t * self.deviations.shape[1] * self.deviations.shape[2], max_n)))
         num_batches = int(np.ceil(num_samples_per_job / batch_size))
         n_bar = num_batches * len(t_checkpoints) * len(n_checkpoints)
 
@@ -103,16 +103,14 @@ class GroundTruthComputer:
             pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
-                # extract datasets and ensemble definitions for this batch
-                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(batch_size, max_t))
-                datasets_in_batch = random_state.randint(0, self.deviations.shape[1], size=(batch_size, max_n))
-
                 # compute the instance-wise value of Z_nt for all ensemble sizes simultaneously
                 for j, t in enumerate(t_checkpoints):
-                    ensemble_errors_on_instances = (self.deviations[ensembles_in_batch[:, :t]].mean(axis=1)**2).sum(axis=2)
+                    ensembles_in_batch_of_size_t = random_state.randint(0, self.deviations.shape[0], size=(batch_size, t))
+                    ensemble_errors_on_instances = (self.deviations[ensembles_in_batch_of_size_t].mean(axis=1)**2).sum(axis=2)
                     for i, n in enumerate(n_checkpoints):
+                        datasets_in_batch_of_size_n = random_state.randint(0, self.deviations.shape[1], size=(batch_size, n))
                         row_indices = np.arange(batch_size)[:, None]
-                        score_matrix[batch_idx, :, i, j] = ensemble_errors_on_instances[row_indices, datasets_in_batch[:, :n]].mean(axis=1)
+                        score_matrix[batch_idx, :, i, j] = ensemble_errors_on_instances[row_indices, datasets_in_batch_of_size_n].mean(axis=1)
                         pbar.update(1)
             pbar.close()
             return score_matrix.reshape(-1, *score_matrix.shape[2:])
@@ -121,20 +119,9 @@ class GroundTruthComputer:
             results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs))
         else:
             results = [collect_scores_for_job(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs)]
-        scores = np.concatenate(results)
-        return np.mean(scores, axis=0), np.var(scores, axis=0, ddof=0)
-    
-    def approximate_true_parameters_in_cond_setting_by_sampling(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
-        """
-            This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
-            This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
-        
-        Args:
-            deviation_matrices (_type_): _description_
-            n (_type_): _description_
-            t (_type_): _description_
-            num_samples (_type_, optional): _description_. Defaults to 10**4.
-        """
+        return np.concatenate(results)
+
+    def sample_conditional_scores(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
         if num_samples_per_job is None:
             num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
@@ -148,7 +135,7 @@ class GroundTruthComputer:
         max_t = max(t_checkpoints)
         
         # define bookkeeping variables to manage the batch size
-        batch_size = max(1, max_entries_in_batch_matrix // (max_t * self.deviations.shape[1] * self.deviations.shape[2]))
+        batch_size = min(num_samples, max(1, max_entries_in_batch_matrix // (max_t * self.deviations.shape[1] * self.deviations.shape[2])))
         num_batches = int(np.ceil(num_samples_per_job / batch_size))
         n_bar = num_batches * len(t_checkpoints)
 
@@ -168,12 +155,10 @@ class GroundTruthComputer:
             pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
-                # extract datasets and ensemble definitions for this batch
-                ensembles_in_batch = random_state.randint(0, self.deviations.shape[0], size=(batch_size, max_t))
-
                 # compute the instance-wise value of Z_nt for all ensemble sizes simultaneously
                 for j, t in enumerate(t_checkpoints):
-                    score_matrix[batch_idx, :, j] = (self.deviations[ensembles_in_batch[:, :t]].mean(axis=1)**2).mean(axis=1).sum(axis=1)
+                    ensembles_in_batch_of_size_t = random_state.randint(0, self.deviations.shape[0], size=(batch_size, t))
+                    score_matrix[batch_idx, :, j] = (self.deviations[ensembles_in_batch_of_size_t].mean(axis=1)**2).mean(axis=1).sum(axis=1)
                     pbar.update(1)
             pbar.close()
             return score_matrix.reshape(-1, *score_matrix.shape[2:])
@@ -182,7 +167,37 @@ class GroundTruthComputer:
             results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, t_checkpoints) for x in range(num_sub_jobs))
         else:
             results = [collect_scores_for_job(x, t_checkpoints) for x in range(num_sub_jobs)]
-        scores = np.concatenate(results)
+        return np.concatenate(results)
+    
+    def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
+        scores = self.sample_iid_scores(
+            t_checkpoints=t_checkpoints,
+            n_checkpoints=n_checkpoints,
+            num_samples=num_samples,
+            num_samples_per_job=num_samples_per_job,
+            n_jobs=n_jobs,
+            max_entries_in_batch_matrix=max_entries_in_batch_matrix
+        )
+        return np.mean(scores, axis=0), np.var(scores, axis=0, ddof=0)
+    
+    def approximate_true_parameters_in_cond_setting_by_sampling(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
+        """
+            This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
+            This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
+        
+        Args:
+            deviation_matrices (_type_): _description_
+            n (_type_): _description_
+            t (_type_): _description_
+            num_samples (_type_, optional): _description_. Defaults to 10**4.
+        """
+        scores = self.sample_conditional_scores(
+            t_checkpoints=t_checkpoints,
+            num_samples=num_samples,
+            num_samples_per_job=num_samples_per_job,
+            n_jobs=n_jobs,
+            max_entries_in_batch_matrix=max_entries_in_batch_matrix
+        )
         return np.mean(scores, axis=0), np.var(scores, axis=0, ddof=0)
 
     def get_all_ensemble_combinations_on_deviations(self, t, compute_deviations=False):

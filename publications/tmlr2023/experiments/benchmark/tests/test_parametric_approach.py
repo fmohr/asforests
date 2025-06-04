@@ -30,6 +30,7 @@ logger.handlers.clear()
 logger.addHandler(ch)
 logger.setLevel(logging.DEBUG)
 
+from experiments.benchmark.benchmark import Benchmark
 from experiments.benchmark.tests.util import get_problem_instance_for_openmlid, get_standard_benchmark, ProblemInstanceWrapperForTesting
 from experiments.benchmark.approaches.a_parametric_diff import ParametricDifferenceModelApproach
 
@@ -65,3 +66,30 @@ class TestParametricApproach(ApproachTestClass):
 
     def adjust_approach_object_for_evaluation_on_conditional_convergence_test_checkpoint(self, approach, e_checkpoint):
         approach.num_simulated_ensembles = e_checkpoint
+    
+
+    def test_that_higher_number_of_simulations_improves_result(self):
+
+        wrapper = ProblemInstanceWrapperForTesting(ensemble_seed=0)
+
+        benchmark = Benchmark(
+            problem_instance=wrapper.pi,
+            ensemble_sequence_seed=0
+        )
+
+        gen = wrapper.pi.get_prediction_matrix_generator(only_validation_data=True)
+        pm_sequence = [next(gen) for _ in range(100)]
+
+        approaches = {
+            f"a{num_sims}": ParametricDifferenceModelApproach(
+                num_simulated_ensembles=num_sims,
+                random_state=0
+            )
+            for num_sims in [10, 100]
+        }
+
+        benchmark.reset(approaches=approaches)
+
+        for _ in range(10):
+            benchmark.step()
+            print(benchmark.result_storage.get_errors_on_highest_budget(params=["E[Z_nt]"]))

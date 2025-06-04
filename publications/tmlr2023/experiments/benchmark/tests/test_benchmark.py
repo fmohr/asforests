@@ -59,7 +59,7 @@ class TestBenchmark(TestCase):
         )
 
         # run benchmark twice for 10 iterations (10 ensemble members)
-        b.reset({}, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints)
+        b.reset({})
 
         # store problem instance with ground truth
         if not file.exists():
@@ -75,7 +75,7 @@ class TestBenchmark(TestCase):
 
         # check whether benchmark can be reset and whether we can extract ground truth values
         b = Benchmark(problem_instance=pi)
-        b.reset({}, n_checkpoints=w.n_checkpoints, t_checkpoints=w.t_checkpoints)
+        b.reset({})
         assert np.array_equal(pi.means_iid, b._true_parameters["E[Z_nt]"])
         assert np.array_equal(pi.means_cond, b._true_parameters["E[Z_nt|D_val]"])
         assert np.array_equal(pi.vars_iid, b._true_parameters["V[Z_nt]"])
@@ -93,7 +93,7 @@ class TestBenchmark(TestCase):
             "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1),
             "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100)
         }
-        b.reset(approaches, n_checkpoints=pi.n_checkpoints, t_checkpoints=pi.t_checkpoints)
+        b.reset(approaches)
         num_steps = 10**1
         for _ in tqdm(range(num_steps)):
             b.step()
@@ -103,10 +103,10 @@ class TestBenchmark(TestCase):
             for n in pi.n_checkpoints:
                 for t in pi.t_checkpoints:
                     df = b.result_storage.get_results_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
-                    self.assertEqual(num_steps, len(df))
+                    self.assertEqual(num_steps * len(b.captured_parameters), len(df))
 
                     df = b.result_storage.get_errors_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
-                    self.assertEqual(num_steps, len(df))
+                    self.assertEqual(num_steps * len(b.captured_parameters), len(df))
 
     def test_reproducibility(self):
         
@@ -123,7 +123,7 @@ class TestBenchmark(TestCase):
         # run benchmark twice for 10 iterations (10 ensemble members)
         storages = []
         for _ in range(2):
-            b.reset(approaches, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints)
+            b.reset(approaches)
             for _ in tqdm(range(10**1)):
                 b.step()
             storages.append(b.result_storage)
@@ -155,7 +155,7 @@ class TestBenchmark(TestCase):
         }
 
         # run benchmark twice for 10 iterations (10 ensemble members)
-        b.reset(approaches, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints)
+        b.reset(approaches)
         for _ in tqdm(range(10**1)):
             b.step()
         
@@ -198,7 +198,7 @@ class TestBenchmark(TestCase):
         result_storages = {}
         budgets = set()
         for a in approaches:
-            b.reset({a: approaches[a]}, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints)
+            b.reset({a: approaches[a]})
             for _ in tqdm(range(10**1)):
                 b.step()
             assert len(b.result_storage.approach_names) == 1 and b.result_storage.approach_names[0] == a
@@ -237,7 +237,7 @@ class TestBenchmark(TestCase):
         }
 
         # run benchmark
-        b.reset(approaches, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints)
+        b.reset(approaches)
         for _ in tqdm(range(10**1)):
             b.step()
         
