@@ -51,6 +51,11 @@ class TheoremBasedApproach(Approach, ABC):
 
     @property
     @abstractmethod
+    def n_validation(self):
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
     def deviation_means_in_iid_setting(self):
         """
             a vector of size k with one estimate of the mean deviation (across i.i.d. sampled instances and ensemble members) for each target
@@ -156,11 +161,10 @@ class TheoremBasedApproach(Approach, ABC):
         coeffiecients = self.get_xi_cov_coefficients_for_conditional_scenario(t)
         covs = self.xi_covs_in_conditional_setting
         if not isinstance(covs, np.ndarray):
-            raise ValueError(f"xi_covs_in_conditional_setting must return a n x n x 7 numpy array but is of type {type(covs)}")
-        if len(covs.shape) != 3 or covs.shape[0] != covs.shape[1] or covs.shape[2] != 7:
-            raise ValueError(f"xi_covs_in_conditional_setting must return a n x n x 7 tensor but has shape {covs.shape}")
-        sum_of_terms = np.einsum("ijk,kt->t", covs, coeffiecients)
-        return sum_of_terms / (covs.shape[0]**2 * t**3)
+            raise ValueError(f"xi_covs_in_conditional_setting must return a numpy array with 7 entries but is of type {type(covs)}")
+        if (7, ) != covs.shape:
+            raise ValueError(f"xi_covs_in_conditional_setting must return a vector with 7 entries but has shape {covs.shape}")
+        return coeffiecients.T @ covs / t**3
 
 
 class DeviationBasedApproach(TheoremBasedApproach):

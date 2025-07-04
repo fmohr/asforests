@@ -10,7 +10,7 @@ from sklearn.datasets import make_classification
 from sklearn.model_selection import StratifiedShuffleSplit
 from experiments.benchmark._util import get_unique_prediction_matrices
 
-from experiments.benchmark.tests.util import ApproachTestClass
+from experiments.benchmark.tests.util import ApproachTestClass, ProblemInstanceWrapperForTesting
 from parameterized import parameterized
 import unittest
 
@@ -39,9 +39,24 @@ approach_logger.setLevel(logging.WARNING)
 
 epa_logger = logging.getLogger("tested_approach.epa")
 epa_logger.handlers.clear()
-epa_logger.addHandler(ch)
-epa_logger.setLevel(logging.ERROR)
+#epa_logger.addHandler(ch)
+epa_logger.setLevel(logging.WARNING)
 
+
+def create_case(n_samples=10, num_different_ensemble_members=2):
+        
+        # create set of deviations
+        X, y = make_classification(n_classes=2, n_samples=n_samples, n_features=20, random_state=2)
+        train_indices, _ = next(StratifiedShuffleSplit(n_splits=1, train_size=0.5, random_state=0).split(X, y))
+        matrices, classes = get_unique_prediction_matrices(X, y, train_indices=train_indices, seed=0, num_matrices=num_different_ensemble_members, max_tries=10**2)
+        assert num_different_ensemble_members == len(matrices)
+        
+        # store setup
+        matrices = np.array(matrices)
+        indices = [classes.index(i) for i in y]
+        y_oh = np.eye(len(classes))[indices]
+        deviations = matrices - y_oh
+        return matrices, y_oh, deviations
 
 class TestDatabaseBasedApproach(ApproachTestClass):
 
@@ -50,31 +65,10 @@ class TestDatabaseBasedApproach(ApproachTestClass):
 
         This is done as follows: We generate a specific sequence of ensemble members, namely each of them exactly once until all have been seen.
         Thereby, the approach has seen all ensemble members exactly once and should, by coincidence, estimate the exactly correct mean values and variances.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        
-        # create set of deviations
-        n_samples = 10
-        num_different_ensemble_members = 2
-        X, y = make_classification(n_classes=2, n_samples=n_samples, n_features=20, random_state=2)
-        train_indices, _ = next(StratifiedShuffleSplit(n_splits=1, train_size=0.5, random_state=0).split(X, y))
-        matrices, classes = get_unique_prediction_matrices(X, y, train_indices=train_indices, seed=0, num_matrices=num_different_ensemble_members, max_tries=10**2)
-        assert num_different_ensemble_members == len(matrices)
-        
-        # store setup
-        cls.matrices = np.array(matrices)
-        indices = [classes.index(i) for i in y]
-        cls.y_oh = np.eye(len(classes))[indices]
-        cls.deviations = matrices - cls.y_oh
-        cls.gtc = GroundTruthComputer(deviations=cls.deviations)
-    
-    def setUp(self):
-        self.matrices = self.__class__.matrices
-        self.y_oh = self.__class__.y_oh
-        self.deviations = self.__class__.deviations
-        self.gtc = self.__class__.gtc
+    """    
+    def setUp(self, n_samples=10, num_different_ensemble_members=2):
+        self.matrices, self.y_oh, self.deviations = create_case(n_samples=n_samples, num_different_ensemble_members=num_different_ensemble_members)
+        self.gtc = GroundTruthComputer(deviations=self.deviations)
 
         self.t_checkpoints = np.arange(1, 6)
     
@@ -83,12 +77,17 @@ class TestDatabaseBasedApproach(ApproachTestClass):
             estimated_parameters=estimated_parameters,
             population_mode="stream",
             random_state=seed,
-            upper_bound_for_sample_size=10**4,
+            threshold_for_number_of_samples_to_exclude_param=10**6,
             logger=approach_logger
         )
 
-    def get_run_approach(self, param):
-        a = DatabaseWiseApproach(estimated_parameters=[param], population_mode="stream")
+    def get_run_approach(self, param, threshold_for_number_of_samples_to_exclude_param=10**4):
+        a = DatabaseWiseApproach(
+            estimated_parameters=[param],
+            population_mode="stream",
+            threshold_for_number_of_samples_to_exclude_param=threshold_for_number_of_samples_to_exclude_param,
+            logger=approach_logger
+        )
         a.reset()
         a.tell_ground_truth_labels(self.y_oh)
 
@@ -97,9 +96,191 @@ class TestDatabaseBasedApproach(ApproachTestClass):
             a.receive_predictions_of_new_ensemble_member(pm)
         return a
     
+    def test_callbacks(self):
+
+        from asforests.cb_computer import Callback
+        import pandas as pd
+
+        class MyCallback(Callback):
+            
+            def __init__(self):
+                super().__init__()
+                self.cnt_start = 0
+                self.cnt_end = 0
+                self.xi_pairs_list = []
+            
+            def on_round_start(self):
+                self.cnt_start += 1
+            
+            def on_xi_term_pair_computation(self, cov_updater):
+                if len(self.xi_pairs_list) == cov_updater.finished_rounds:
+                    self.xi_pairs_list.append(cov_updater.new_xi_pairs)
+
+            def on_round_end(self):
+                self.cnt_end += 1
+
+        cb = MyCallback()
+
+        a = DatabaseWiseApproach(
+            population_mode="stream",
+            random_state=0,
+            threshold_for_number_of_samples_to_exclude_param=10**6,
+            callbacks=[cb],
+            logger=approach_logger
+        )
+        
+        pi = ProblemInstanceWrapperForTesting(
+            ensemble_seed=0,
+            num_possible_ensemble_members=8
+        )
+        a.reset()
+        a.tell_ground_truth_labels(pi.pi.y_oh_val)
+        for pm in pi.pi.predictions_val:
+            a.receive_predictions_of_new_ensemble_member(pm)
+        
+        self.assertEqual(len(pi.pi.predictions_val), cb.cnt_start)
+        self.assertEqual(len(pi.pi.predictions_val), cb.cnt_end)
+        self.assertEqual(len(pi.pi.predictions_val), len(cb.xi_pairs_list))
+
+    def test_that_cov_updaters_are_disabled_if_no_variances_are_estimated(self):
+        for param in ["V[Z_nt]", "V[Z_nt|D_val]"]:
+            a = DatabaseWiseApproach(
+                estimated_parameters=[param],
+                population_mode="stream",
+                random_state=0,
+                logger=approach_logger
+            )
+
+            pi = ProblemInstanceWrapperForTesting(
+                ensemble_seed=0,
+                num_possible_ensemble_members=8,
+                validation_size=5
+            )
+            a.reset()
+            a.tell_ground_truth_labels(pi.pi.y_oh_val)
+            round = 0
+
+            for pm in pi.pi.get_prediction_matrix_generator(ensemble_sequence_seed=0, only_validation_data=True):
+                a.receive_predictions_of_new_ensemble_member(pm)
+                if param == "V[Z_nt]":
+                    self.assertIsNone(a.epa.cov_updater_for_conditional_case)
+                elif param == "V[Z_nt|D_val]":
+                    self.assertIsNone(a.epa.cov_updater_for_iid_case_equal_instances)
+                    self.assertIsNone(a.epa.cov_updater_for_iid_case_arbitrary_instances)
+                round += 1
+                if round > 5:
+                    break
+    
+    def test_that_cov_updaters_increase_samples_for_active_params(self):
+        a = DatabaseWiseApproach(
+            population_mode="stream",
+            random_state=0,
+            threshold_for_number_of_samples_to_exclude_param=np.array([10**3, 10**3, 10**3, 10**3, 10**4, 10**4, 10**5]),
+            logger=approach_logger
+        )
+
+        pi = ProblemInstanceWrapperForTesting(
+            ensemble_seed=0,
+            num_possible_ensemble_members=8,
+            validation_size=5
+        )
+        a.reset()
+        a.tell_ground_truth_labels(pi.pi.y_oh_val)
+        round = 0
+
+        updaters = None
+        last_count_of_observations = None
+
+        for pm in pi.pi.get_prediction_matrix_generator(ensemble_sequence_seed=0, only_validation_data=True):
+            a.receive_predictions_of_new_ensemble_member(pm)
+            round += 1
+            
+            # if this was the first update, retriever the cov updaters
+            logger.info(f"Round {round}. Shape of data is {pm.shape}")
+            if round == 1:
+                updaters = [
+                    a.epa.cov_updater_for_conditional_case,
+                    a.epa.cov_updater_for_iid_case_equal_instances,
+                    a.epa.cov_updater_for_iid_case_arbitrary_instances
+                ]
+                last_count_of_observations = [u.num_used_samples_per_cov_estimate for u in updaters]
+                last_active_masks = [u.mask_of_active_params.copy() for u in updaters]
+            
+            else:
+                
+                for i, (updater, last_count, last_active_mask) in enumerate(zip(updaters, last_count_of_observations, last_active_masks)):
+                    logger.info(f"Updater {i}. {last_active_mask} {last_count} {updater.get_highest_order_of_member_combinations_required()}")
+                    
+                    # check that the updater didn't add samples for any covariance builder that previously was declared inactive.
+                    cur_counts = updater.num_used_samples_per_cov_estimate.copy()
+                    counts_changes = cur_counts - last_count
+                    self.assertTrue(np.all(~last_active_mask | (counts_changes > 0)), f"Observed no change in active parameter. {last_active_mask} (problem in index {np.where(last_active_mask | (counts_changes > 0))[0]}). Counts stayed at {last_count[last_active_mask  | (counts_changes > 0)]}")
+                    last_active_mask[:] = updater.mask_of_active_params.copy()
+                    last_count[:] = cur_counts
+                if round > 100 or a.epa.cov_updater_for_conditional_case.get_highest_order_of_member_combinations_required() == 0:
+                    break
+        
+        # check that all updaters are disabled
+        self.assertTrue(updaters[0].is_active)
+        self.assertTrue(updaters[1].is_active)
+        self.assertFalse(updaters[2].is_active) # this guy has already reachd its maximum even in the first param
+
+    def test_that_cov_updaters_disable_params_upon_saturation(self):
+        a = DatabaseWiseApproach(
+            population_mode="stream",
+            random_state=0,
+            threshold_for_number_of_samples_to_exclude_param=50,
+            logger=approach_logger
+        )
+
+        pi = ProblemInstanceWrapperForTesting(
+            ensemble_seed=0,
+            num_possible_ensemble_members=8,
+            validation_size=5
+        )
+        a.reset()
+        a.tell_ground_truth_labels(pi.pi.y_oh_val)
+        round = 0
+
+        updaters = None
+        last_count_of_observations = None
+
+        for pm in pi.pi.get_prediction_matrix_generator(ensemble_sequence_seed=0, only_validation_data=True):
+            a.receive_predictions_of_new_ensemble_member(pm)
+            round += 1
+            
+            # if this was the first update, retriever the cov updaters
+            if round == 1:
+                updaters = [
+                    a.epa.cov_updater_for_conditional_case,
+                    a.epa.cov_updater_for_iid_case_equal_instances,
+                    a.epa.cov_updater_for_iid_case_arbitrary_instances
+                ]
+                last_count_of_observations = [u.num_used_samples_per_cov_estimate for u in updaters]
+                last_active_masks = [u.mask_of_active_params.copy() for u in updaters]
+
+            logger.info(f"Round {round}. Shape of data is {pm.shape}")
+            for i, (updater, last_count, last_active_mask) in enumerate(zip(updaters, last_count_of_observations, last_active_masks)):
+                logger.info(f"Updater {i}. {last_active_mask} {last_count} {updater.get_highest_order_of_member_combinations_required()}")
+                
+                # check that the updater didn't add samples for any covariance builder that previously was declared inactive.
+                cur_counts = updater.num_used_samples_per_cov_estimate.copy()
+                counts_changes = cur_counts != last_count
+                self.assertFalse(np.any(~last_active_mask & counts_changes), f"Observed change in inactive parameter. {last_active_mask} (problem in index {np.where(~last_active_mask & counts_changes)[0]}). Counts changed from {last_count[~last_active_mask & counts_changes]} to {cur_counts[~last_active_mask & counts_changes]}")
+                last_active_mask[:] = updater.mask_of_active_params.copy()
+                last_count[:] = cur_counts
+            if round > 60 or a.epa.cov_updater_for_conditional_case.get_highest_order_of_member_combinations_required() == 0:
+                break
+        
+        # check that all updaters are disabled
+        for updater in updaters:
+            self.assertEqual(0, updater.get_highest_order_of_member_combinations_required())
+            self.assertFalse(updater.is_active)
+
+    
     def test_correct_behavior_of_ensemble_performance_estimator(self):
 
-        epa = EnsemblePerformanceAssessor(upper_bound_for_sample_size=10**8, population_mode="stream")
+        epa = EnsemblePerformanceAssessor(threshold_for_number_of_samples_to_exclude_param=10**8, population_mode="stream")
         
         # add all of these matrices to the estimator
         for m in self.deviations:
@@ -165,7 +346,7 @@ class TestDatabaseBasedApproach(ApproachTestClass):
         param = "V[Z_nt]"
 
         # run approach
-        a = self.get_run_approach(param)
+        a = self.get_run_approach(param, threshold_for_number_of_samples_to_exclude_param=10**8)
 
         # get extracted covs from approach
         predicted_covs = a.xi_covs_in_iid_setting
@@ -197,17 +378,15 @@ class TestDatabaseBasedApproach(ApproachTestClass):
 
         # get extracted covs from approach
         predicted_covs = a.xi_covs_in_conditional_setting
+        self.assertEqual((7, ), predicted_covs.shape)
 
         # determine ground truth covariances
         gtt = self.gtc.get_conditional_ground_truth_table()
-        gt_covariances = self.gtc.get_covariance_terms_for_each_instance_pair(gtt, ddof=0)
-        
+        true_covariances = self.gtc.get_covariance_terms_for_each_instance_pair(gtt, ddof=0).drop(columns=["i_1", "i_2"]).mean()
+
         # compare predictions with ground truth in the n x n x 7 covariance terms
-        for (i1, i2), df_covariances in gt_covariances.groupby(["i_1", "i_2"]):
-            self.assertEqual(1, len(df_covariances))
-            covs = df_covariances.drop(columns=["i_1", "i_2"]).iloc[0].values
-            for c, cov in enumerate(covs):
-                self.assertAlmostEqual(cov, predicted_covs[i1 - 1, i2 - 1, c], msg=f"Wrong estimate for case {c} on instance pair {i1}/{i2}")
+        for c, (act_cov, pred_cov) in enumerate(zip(true_covariances, predicted_covs), start=1):
+            self.assertAlmostEqual(act_cov, pred_cov, msg=f"Wrong covariance estimate for case {c}.")
         
         # compare predicted (and stored) variance with true variance, and make sure that result is the same as in vectorized one
         v_pred_array = a.estimate_performance_var_in_conditional_setup(t=self.t_checkpoints)
@@ -219,70 +398,43 @@ class TestDatabaseBasedApproach(ApproachTestClass):
 
     
     def test_approximation_quality_for_variance_in_iid_setting(self):
-        return
-
         param = "V[Z_nt]"
-      
-        # create set of deviations
-        n_samples = 200
-        n_classes = 2
-        num_different_ensemble_members = 3
-        X, y = make_classification(n_classes=n_classes, n_samples=n_samples, n_features=20, random_state=0)
-        train_indices, _ = next(StratifiedShuffleSplit(n_splits=1, train_size=20, random_state=0).split(X, y))
-        matrices, classes = get_unique_prediction_matrices(
-            X,
-            y,
-            train_indices=train_indices,
-            seed=0,
-            num_matrices=num_different_ensemble_members,
-            max_tries=10**2,
-            rf_kwargs={"max_depth": 1}
-        )
-        matrices = np.array(matrices)
-        assert (num_different_ensemble_members, n_samples, n_classes) == matrices.shape
 
-        # store setup
-        indices = [classes.index(i) for i in y]
-        y_oh = np.eye(len(classes))[indices]
-        deviations = matrices - y_oh
+        # create a more difficult case here
+        self.setUp(n_samples=100, num_different_ensemble_members=5)
 
-        # create both algorithms, the one with enough space and the approximator
-        gt_computer = DatabaseWiseApproach(estimated_parameters=[param], population_mode="stream", logger=logger)
-        approximator = DatabaseWiseApproach(
-            estimated_parameters=[param],
-            population_mode="stream",
-            upper_bound_for_sample_size=10**6,
-            logger=logger)
-        for a in [gt_computer, approximator]:
-            a.reset()
-            a.tell_ground_truth_labels(y_oh)
+        # get ground truth covariances through same approach but without an effective limit
+        a_true = self.get_run_approach(param, threshold_for_number_of_samples_to_exclude_param=10**8)
+        true_covs_as_array = a_true.xi_covs_in_iid_setting
+
+        # run approximating approach
+        allowed_instances = np.array([10**3, 10**3, 10**3, 10**3, 10**4, 10**4, 10**5])
+        a_approx = self.get_run_approach(param, threshold_for_number_of_samples_to_exclude_param=allowed_instances)
+
+        # get extracted covs from approach
+        predicted_covs = a_approx.xi_covs_in_iid_setting
+
+        # compare predictions with ground truth in the 14 covariance terms
+        for i in range(2):
+            for c, (predicted_cov, true_cov, tol) in enumerate(zip(
+                predicted_covs.reshape(2, -1)[i],
+                true_covs_as_array.reshape(2, -1)[i],
+                [1, 1, 1, 1, 2, 2, 3]
+            )):
+                self.assertAlmostEqual(true_cov, predicted_cov, places=tol, msg=f"Wrong estimate for case {c} in {'identical instance' if i == 0 else 'arbitrary instance'} scenario.")
         
-        # advance both and check the approximation quality of the covariance terms
-        coeffiecients_for_t10 = gt_computer.get_xi_cov_coefficients_for_iid_scenario(t=np.array([10])).reshape(2, 7) / 2 # divide by 2 due to n = 2, applies for both rows in this special case
-        for r, pm in enumerate(matrices, start=1):
-            logger.info(f"\n{''.join(['-']*20)}\nStart of round {r}\n{''.join(['-']*20)}")
-            gt_computer.receive_predictions_of_new_ensemble_member(pm)
-            approximator.receive_predictions_of_new_ensemble_member(pm)
-            for outer_index in range(2):
-                for inner_index in range(7):
-                    b1 = gt_computer.epa.mixed_moment_builders_for_iid_xi_covs[outer_index, inner_index]
-                    b2 = approximator.epa.mixed_moment_builders_for_iid_xi_covs[outer_index, inner_index]
-                    c1 = coeffiecients_for_t10[outer_index, inner_index] * b1.cov
-                    c2 = coeffiecients_for_t10[outer_index, inner_index] * b2.cov
-                    logger.info(f"{outer_index}, {inner_index} -> {b1.cov}, {b2.cov} -> {c1}, {c2}")
-                    if np.round(c1, 5) != np.round(c2, 5):
-                        logger.warning(
-                            f"Approximation warning\n"
-                            f"\tApproximation of cov for case [{outer_index}, {inner_index}] is wrong by {abs(b1.cov - b2.cov)}.\n"
-                            f"\tExpected {b1.cov} but saw {b2.cov}\n"
-                            f"\tThe summand then is then not the expected {c1} but {c2}"
-                        )
-                    #self.assertAlmostEqual(b1.cov, b2.cov, places=5, msg=f"Approximation of cov for case [{outer_index}, {inner_index}] is bad")
-
-
-        # check that variance is similar
-        self.assertAlmostEqual(
-            gt_computer.estimate_performance_var_for_two_instances_in_iid_setup(t=np.array([10]))[0],
-            approximator.estimate_performance_var_for_two_instances_in_iid_setup(t=np.array([10]))[0],
-            places=3
-        )
+        # compare predicted (and stored) variance with true variance (on iid samples from the validation data as population)
+        n_checkpoints = np.array([2, 3])
+        v_pred_array = a_approx.estimate_performance_var_in_iid_setup(n=n_checkpoints, t=self.t_checkpoints)
+        for n, var_predictions_for_n in zip(n_checkpoints, v_pred_array):
+            for t, pred_var in zip(self.t_checkpoints, var_predictions_for_n):
+                true_var = a_true.estimate_performance_var_in_iid_setup(n=n, t=t)[0, 0]
+                if n * t <= 10:
+                    places = 1
+                elif n * t <= 20:
+                    places = 2
+                elif n * t <= 100:
+                    places = 4
+                else:
+                    places = 6
+                self.assertAlmostEqual(true_var, pred_var, places=places, msg=f"Final variance prediciton for V[Z_{n},{t}] is not precise enough using {allowed_instances} samples.")

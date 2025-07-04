@@ -58,6 +58,8 @@ class ProblemInstance:
         self._indices_train = self._indices_val = self._indices_oos = None
         self._predictions = predictions
         self._deviations = deviations
+        self.approach_for_gt_iid_case = None
+        self.approach_for_gt_conditional_case = None
         self._true_means_for_iid_case = true_means_for_iid_case
         self._true_vars_for_iid_case = true_vars_for_iid_case
         self._true_means_for_cond_case = true_means_for_cond_case
@@ -261,11 +263,14 @@ class ProblemInstance:
         oos_indices = rest_indices[oos_indices]
         train_indices.sort(), oos_indices.sort(), validation_indices.sort()
         assert len(set(train_indices) | set(validation_indices) | set(oos_indices)) == len(self.X)
-        assert self.validation_size == len(set(validation_indices))
+        if self.validation_size < 1:
+            rel_validation_size = len(set(validation_indices)) / self.X.shape[0]
+            assert np.isclose(self.validation_size, rel_validation_size), f"There is a fraction of {rel_validation_size} instances marked for validation, but the parameter is {self.validation_size}"
+        else:
+            assert self.validation_size == len(set(validation_indices)), f"There are {len(set(validation_indices))} instances marked for validation, but the parameter is {self.validation_size}"
         self._indices_train = train_indices
         self._indices_val = validation_indices
         self._indices_oos = oos_indices
-        assert self.validation_size == len(self._indices_val)
         self.logger.info(f"Created split. {len(self._indices_train)}/{len(self._indices_val)}/{len(self._indices_oos)} instances are in train/val/oos folds respectively.")
 
         # check whether we need to overwrite the data
@@ -324,32 +329,32 @@ class ProblemInstance:
         from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach
 
         # iid case
-        a = DatabaseWiseApproach(
+        self.approach_for_gt_iid_case = DatabaseWiseApproach(
             estimated_parameters=["E[Z_nt]", "V[Z_nt]"],
-            upper_bound_for_sample_size=self.num_samples_allowed_for_ground_truth_approximation
+            threshold_for_number_of_samples_to_exclude_param=self.num_samples_allowed_for_ground_truth_approximation
         )
-        a.reset()
-        a.tell_ground_truth_labels(self.y_oh)
+        self.approach_for_gt_iid_case.reset()
+        self.approach_for_gt_iid_case.tell_ground_truth_labels(self.y_oh)
         for m in self.predictions:
-            a.receive_predictions_of_new_ensemble_member(m)
-        self._true_means_for_iid_case = a.estimate_performance_mean_in_iid_setup(t=self.t_checkpoints)
-        self._true_vars_for_iid_case = a.estimate_performance_var_in_iid_setup(n=self.n_checkpoints, t=self.t_checkpoints)
+            self.approach_for_gt_iid_case.receive_predictions_of_new_ensemble_member(m)
+        self._true_means_for_iid_case = self.approach_for_gt_iid_case.estimate_performance_mean_in_iid_setup(t=self.t_checkpoints)
+        self._true_vars_for_iid_case = self.approach_for_gt_iid_case.estimate_performance_var_in_iid_setup(n=self.n_checkpoints, t=self.t_checkpoints)
     
     def _compute_exact_ground_truth_cond(self):
 
         from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach
 
         # conditional case
-        a = DatabaseWiseApproach(
+        self.approach_for_gt_conditional_case = DatabaseWiseApproach(
             estimated_parameters=["E[Z_nt|D_val]", "V[Z_nt|D_val]"],
-            upper_bound_for_sample_size=self.num_samples_allowed_for_ground_truth_approximation
+            threshold_for_number_of_samples_to_exclude_param=self.num_samples_allowed_for_ground_truth_approximation
         )
-        a.reset()
-        a.tell_ground_truth_labels(self.y_oh_val)
+        self.approach_for_gt_conditional_case.reset()
+        self.approach_for_gt_conditional_case.tell_ground_truth_labels(self.y_oh_val)
         for m in self.predictions_val:
-            a.receive_predictions_of_new_ensemble_member(m)
-        self._true_means_for_cond_case = a.estimate_performance_mean_in_conditional_setup(t=self.t_checkpoints)
-        self._true_vars_for_cond_case = a.estimate_performance_var_in_conditional_setup(t=self.t_checkpoints)
+            self.approach_for_gt_conditional_case.receive_predictions_of_new_ensemble_member(m)
+        self._true_means_for_cond_case = self.approach_for_gt_conditional_case.estimate_performance_mean_in_conditional_setup(t=self.t_checkpoints)
+        self._true_vars_for_cond_case = self.approach_for_gt_conditional_case.estimate_performance_var_in_conditional_setup(t=self.t_checkpoints)
 
     def _approximate_ground_truth_parameters(self, num_samples=None, num_samples_per_job=None, n_jobs=1):
 

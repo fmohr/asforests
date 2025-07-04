@@ -287,7 +287,7 @@ class ApproachTestClass(TestCase):
         basis_for_checkpoints = 2
         first_exponent = 1
         exponent_step_size = 3
-        num_steps = 2 if self.__class__.__name__ == "TestDatabaseBasedApproach" else 5 # BUT CURRENTLY THE DATABASE BASED APPROACH IS TOO SLOW
+        num_steps = 3 if self.__class__.__name__ == "TestDatabaseBasedApproach" else 5 # BUT CURRENTLY THE DATABASE BASED APPROACH IS TOO SLOW
         required_factor_of_improvement_by_each_checkpoint = 1.2 # require that the average error at the previous checkpoint was at least 20% higher than the current one
         num_estimates_per_checkpoint_for_average_error_approximation = 10
 

@@ -10,21 +10,25 @@ class DatabaseWiseApproach(DeviationBasedApproach):
 
     def __init__(
             self,
-            upper_bound_for_sample_size=10**8,
+            threshold_for_number_of_samples_to_exclude_param=10**6,
             max_number_of_xi_terms_to_include_in_update=10**8,
             population_mode="stream",
             single_data_point_per_ensemble_member=False,
             create_estimates_for_iid_scenario=True,
+            max_number_of_recent_members_to_combine_with=30,
+            callbacks=[],
             **kwargs
             ):
         super().__init__(**kwargs)
-        self.upper_bound_for_sample_size = upper_bound_for_sample_size
+        self.threshold_for_number_of_samples_to_exclude_param = threshold_for_number_of_samples_to_exclude_param
+        self.max_number_of_recent_members_to_combine_with = max_number_of_recent_members_to_combine_with
         self.max_number_of_xi_terms_to_include_in_update = max_number_of_xi_terms_to_include_in_update
         self.population_mode = population_mode
         self.single_data_point_per_ensemble_member = single_data_point_per_ensemble_member
         self.create_estimates_for_iid_scenario = create_estimates_for_iid_scenario
         if not create_estimates_for_iid_scenario and single_data_point_per_ensemble_member:
             raise ValueError(f"if create_estimates_for_iid_scenario is False, then we have no iid estimates, so single_data_point_per_ensemble_member should also be False")
+        self.callbacks = callbacks
 
         # state variables
         self.deviation_matrices = None
@@ -34,7 +38,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
     def reset(self):
         super().reset()
         self.epa = EnsemblePerformanceAssessor(
-            upper_bound_for_sample_size=self.upper_bound_for_sample_size,
+            threshold_for_number_of_samples_to_exclude_param=self.threshold_for_number_of_samples_to_exclude_param,
             population_mode=self.population_mode,
             execute_asserts=False,
             estimate_deviation_mean=self.estimating_iid_mean,
@@ -42,13 +46,19 @@ class DatabaseWiseApproach(DeviationBasedApproach):
             estimate_deviation_covs=self.estimating_iid_mean,
             estimate_performance_var_for_iid_case=self.estimating_iid_variance,
             estimate_performance_var_for_conditional_case=self.estimating_conditional_variance,
+            max_number_of_recent_members_to_combine_with=self.max_number_of_recent_members_to_combine_with,
             max_number_of_xi_terms_to_include_in_update=self.max_number_of_xi_terms_to_include_in_update,
             random_state=self.random_state,
+            callbacks=self.callbacks,
             logger=logging.getLogger(f"{self.logger.name}.epa")
         )
         if not self.create_estimates_for_iid_scenario:  # maybe we only need this
             self.deviation_matrices = []
     
+    @property
+    def n_validation(self):
+        return self.epa.n
+
     @property
     def estimating_conditional_variance(self):
         return "V[Z_nt|D_val]" in self.estimated_parameters
@@ -101,7 +111,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
         if not self.epa.estimate_performance_var_for_conditional_case and not self.epa.estimate_performance_var_for_iid_case:
             raise ValueError(f"EnsemblePerformance estimator is not configured to estimate variances!")
         f = np.vectorize(lambda obj: obj.cov)  # make estimate biased
-        covs = f(self.epa.mixed_moment_builders_for_conditional_xi_covs)
+        covs = f(self.epa.cov_updater_for_conditional_case)
         return covs
     
     @property
@@ -111,7 +121,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
         if not self.epa.estimate_performance_var_for_conditional_case and not self.epa.estimate_performance_var_for_iid_case:
             raise ValueError(f"EnsemblePerformance estimator is not configured to estimate variances!")
         f = np.vectorize(lambda obj: obj.cov)  # make estimate biased
-        covs = f(self.epa.mixed_moment_builders_for_iid_xi_covs)
+        covs = np.concatenate([f(self.epa.cov_updater_for_iid_case_equal_instances), f(self.epa.cov_updater_for_iid_case_arbitrary_instances)])
         return covs.flatten()
 
     def receive_deviations_of_new_ensemble_member(self, deviation_matrix):

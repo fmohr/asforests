@@ -80,11 +80,15 @@ class Benchmark:
         # we use the database-based approach to estimate the ground truth (only possible if we show exactly once the predictions of all ensemble members, cf unit tests)
         self.logger.info(f"Starting computation of ground truth. Maximum sample size at each stage is {self.upper_bound_for_sample_size_in_ground_truth_computation}")
         pi = self.problem_instance
+        _true_parameter_routines = {
+            "E[Z_nt]": "means_iid",
+            "E[Z_nt|D_val]": "means_cond",
+            "V[Z_nt]": "vars_iid",
+            "V[Z_nt|D_val]": "vars_cond"
+        }
         self._true_parameters = {
-            "E[Z_nt]": pi.means_iid,
-            "E[Z_nt|D_val]": pi.means_cond,
-            "V[Z_nt]": pi.vars_iid,
-            "V[Z_nt|D_val]": pi.vars_cond
+            p: getattr(pi, _true_parameter_routines[p])
+            for p in self.captured_parameters
         }
         self.logger.info(f"Ground truth parameter values are: %s", ("".join([f"\n\t{k}: {np.round(v, 4).tolist()}" for k, v in self._true_parameters.items()])))
 
