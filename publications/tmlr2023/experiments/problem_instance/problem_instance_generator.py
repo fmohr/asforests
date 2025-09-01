@@ -71,7 +71,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     num_samples = num_samples_allowed_for_ground_truth_approximation
     num_samples_per_job = int(np.ceil(num_samples / n_jobs))
     logger.info(
-        f"Starting ground truth approximation for dataset {openmlid} under {num_possible_ensemble_members} possible ensemble members and {validation_instances} validation instances per class using {num_samples} samples generated through {n_jobs} jobs."
+        f"Starting ground truth approximation for dataset {openmlid} (seed {data_seed}) under {num_possible_ensemble_members} possible ensemble members and {validation_instances} validation instances per class using {num_samples} samples generated through {n_jobs} jobs."
     )
     logger.info(f"Number of samples per job is {num_samples_per_job}")
     t_start = time.time()
