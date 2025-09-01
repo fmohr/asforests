@@ -43,6 +43,9 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     filename_gz = filename + ".gz"
     path = Path(filename_gz)
     if path.exists():
+        logger.info(
+            f"Ignoring experiment since file {filename_gz} exists already."
+        )
         return
 
     # core configuration
