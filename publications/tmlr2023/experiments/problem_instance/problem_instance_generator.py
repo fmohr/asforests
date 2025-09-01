@@ -10,6 +10,9 @@ import sys
 import numpy as np
 import json
 
+import gzip
+import shutil
+
 import time
 
 def run_experiment(keyfields: dict, result_processor, custom_config):
@@ -37,7 +40,8 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
     logger = logging.getLogger("experimenter")
     filename = f"problem_instances/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances}.json"
-    path = Path(filename)
+    filename_gz = filename + ".gz"
+    path = Path(filename_gz)
     if path.exists():
         return
 
@@ -110,6 +114,12 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         d_rec = json.load(f)
         assert d == d_rec
 
+    # gzip file and remove original
+    with open(path, "rb") as f_in:
+        with gzip.open(filename_gz, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    path.unlink() # remove uncompressed file
+
 
 if __name__ == "__main__":
 
@@ -126,6 +136,7 @@ if __name__ == "__main__":
         use_codecarbon=False,
         experiment_configuration_file_path=f"ground_truth_experiments.yaml"
         )
+    
 
     while True:
         try:
