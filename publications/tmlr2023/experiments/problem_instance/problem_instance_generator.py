@@ -41,8 +41,9 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     logger = logging.getLogger("experimenter")
     filename = f"problem_instances/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances}.json"
     filename_gz = filename + ".gz"
-    path = Path(filename_gz)
-    if path.exists():
+    path = Path(filename)
+    path_gz = Path(filename_gz)
+    if path_gz.exists():
         logger.info(
             f"Ignoring experiment since file {filename_gz} exists already."
         )
