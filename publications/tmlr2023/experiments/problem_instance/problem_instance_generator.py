@@ -108,7 +108,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     d.pop("deviations") # we don't want/need to serialize the deviations
     d["validation_instances_per_class"] = validation_instances # memorize this configuration for easier later comparison
     path.parent.mkdir(exist_ok=True, parents=True)
-    #print(d)
+    logger.info(f"Dumping results into {path}")
     with open(path, "w") as f:
         json.dump(d, f)
 
@@ -118,10 +118,11 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         assert d == d_rec
 
     # gzip file and remove original
+    logger.info(f"Compressing results into {filename_gz}")
     with open(path, "rb") as f_in:
         with gzip.open(filename_gz, "wb") as f_out:
             shutil.copyfileobj(f_in, f_out)
-    path.unlink() # remove uncompressed file
+    #path.unlink() # remove uncompressed file
 
 
 if __name__ == "__main__":
