@@ -48,7 +48,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     n = int(keyfields["n"])
 
     num_possible_ensemble_members = int(keyfields["num_possible_ensemble_members"])
-    validation_size = int(keyfields["validation_size"])
+    validation_size = int(keyfields["validation_instances"])
     
     training_instances_per_class = 10
 
@@ -129,7 +129,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         bm_logger.setLevel(logging.DEBUG)
         
         # run benchmark for 10 iterations (10 ensemble members)
-        logger.info(f"Running experiment on dataset {openmlid} with data seed {data_seed}, ensemble sequence seed {ensemble_sequence_seed}, {validation_size} validation instances, and {num_possible_ensemble_members} possible ensemble members.")
+        logger.info(f"Running experiment on dataset {openmlid} with data seed {data_seed} for {n=} and {t=}, ensemble sequence seed {ensemble_sequence_seed}, {validation_size} validation instances, and {num_possible_ensemble_members} possible ensemble members.")
         logger.info(f"Computing ground truth")
         b.reset(approaches)
         
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     #run_experiment({
     #    "openmlid": 1049,
     #    "num_possible_ensemble_members": 8,
-    #    "validation_size": 8,
+    #    "validation_instances": 8,
     #    "data_seed": 1,
     #    "t": 1000,
     #    "n": 1000
