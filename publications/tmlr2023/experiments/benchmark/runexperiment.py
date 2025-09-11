@@ -81,10 +81,13 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             t_checkpoints = pi.t_checkpoints
             n_checkpoints = pi.n_checkpoints if captured_parameter == "V[Z_nt]" else [None]
 
+            folder_for_task = f"{folder}/{captured_parameter}/{openmlid}"
+            pathlib.Path(folder_for_task).mkdir(exists_ok=True, parents=True)
+
             for n, t in it.product(n_checkpoints, t_checkpoints):
 
                 # define name for result file and skip if we already have results for this
-                filename = f"{folder}/{captured_parameter}_{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
+                filename = f"{folder_for_task}/{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
                 gz_filename = f"{filename}.gz"
                 if pathlib.Path(gz_filename).exists():
                     print(f"Skipping seed {ensemble_sequence_seed} since result file already exists.")
