@@ -16,16 +16,8 @@ PY_EXPERIMENTER:
         
         num_possible_ensemble_members:
           type: INT
-          #values: [1, 2, 4, 10, 20, 50, 100, 200]
-          values: [1, 8, 64, 256]
-
-        n:
-          type: INT
-          values: [2, 10, 100, 1000]
-
-        t:
-          type: INT
-          values: [1, 2, 10, 100, 1000]
+          #values: [1, 8, 64, 256]
+          values: [64, 256]
 
         data_seed:
           type: INT
@@ -36,5 +28,6 @@ PY_EXPERIMENTER:
         
         validation_instances:
           type: INT
-          values: [2, 8, 64, 256]
+          #values: [2, 8, 64, 256]
+          values: [64, 256]
       result_timestamps: False

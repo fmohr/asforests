@@ -4,6 +4,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
 
+import json
 import pandas as pd
 import numpy as np
 import openml
@@ -447,3 +448,6 @@ class ProblemInstance:
             if field in dict:
                 dict[field] = np.array(dict[field])
         return ProblemInstance(**dict)
+    
+    def copy(self):
+        return ProblemInstance.from_dict(json.loads(json.dumps(self.to_dict())))

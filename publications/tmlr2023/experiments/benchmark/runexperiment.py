@@ -44,8 +44,6 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
     openmlid = int(keyfields["openmlid"])
     data_seed = int(keyfields["data_seed"])
-    t = int(keyfields["t"])
-    n = int(keyfields["n"])
 
     num_possible_ensemble_members = int(keyfields["num_possible_ensemble_members"])
     validation_size = int(keyfields["validation_instances"])
@@ -55,12 +53,6 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     # read problem instance with known ground truth parameter values
     with open(f"{PATH_TO_PROBLEM_INSTANCES}/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_size}.json", 'r') as f:
         pi = ProblemInstance.from_dict(json.load(f))
-        for _t in pi.t_checkpoints:
-            if _t != t:
-                pi.drop_t_checkpoint(t=_t)
-        for _n in pi.n_checkpoints:
-            if _n != n:
-                pi.drop_n_checkpoint(n=_n)
         assert pi._true_means_for_iid_case is not None
         if pi._true_means_for_iid_case.shape == (len(pi.n_checkpoints), len(pi.t_checkpoints)):
             pi._true_means_for_iid_case = pi._true_means_for_iid_case.mean(axis=0)
@@ -75,72 +67,90 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
     for ensemble_sequence_seed in range(1):
 
-        # define name for result file and skip if we already have results for this
-        filename = f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
-        if pathlib.Path(filename).exists():
-            print(f"Skipping seed {ensemble_sequence_seed} since result file already exists.")
-            continue
-        
-
         # create benchmark
         captured_parameters = ["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]
-        b = Benchmark(
-            problem_instance=pi,
-            captured_parameters=captured_parameters,
-            ensemble_sequence_seed=ensemble_sequence_seed
-        )
 
         # configure logger of approach
         a_logger = logging.getLogger("approach")
         a_logger.handlers.clear()
         a_logger.addHandler(ch)
-        a_logger.setLevel(logging.DEBUG)
+        a_logger.setLevel(logging.WARNING)
         approaches = {}
         for captured_parameter in captured_parameters:
-            for num_simulated_ensembles in [100, 1000]:
-                approaches[f"{captured_parameter}::biparametric - {num_simulated_ensembles}"] = ParametricDifferenceModelApproach(
-                    random_state=0,
-                    estimated_parameters=[captured_parameter],
-                    num_simulated_ensembles=num_simulated_ensembles,
-                    logger=a_logger
-                )
-            
-            for num_resamples, bootstrap_size in it.product([1, 10], [10]):#, 100]):
-                approaches[f"{captured_parameter}::bootstrapping - {num_resamples}x{bootstrap_size}"] = BootstrappingApproach(
-                    random_state=0,
-                    estimated_parameters=[captured_parameter],
-                    bootstrap_size=bootstrap_size,
-                    num_resamples=num_resamples,
-                    logger=a_logger
-                )
-        
-            approaches[f"{captured_parameter}::model free"] = DatabaseWiseApproach(
-                random_state=0,
-                estimated_parameters=[captured_parameter],
-                population_mode="stream",
-                threshold_for_number_of_samples_to_exclude_param=10**5,
-                logger=a_logger
-            )
 
-        # configure logger of benchmark
-        bm_logger = logging.getLogger("benchmark")
-        bm_logger.handlers.clear()
-        bm_logger.addHandler(ch)
-        bm_logger.setLevel(logging.DEBUG)
-        
-        # run benchmark for 10 iterations (10 ensemble members)
-        logger.info(f"Running experiment on dataset {openmlid} with data seed {data_seed} for {n=} and {t=}, ensemble sequence seed {ensemble_sequence_seed}, {validation_size} validation instances, and {num_possible_ensemble_members} possible ensemble members.")
-        logger.info(f"Computing ground truth")
-        b.reset(approaches)
-        
-        max_budget = 10**3
-        logger.info(f"Done. Now obtaining estimates for ensemble sizes of size up to {max_budget}")
-        for _ in tqdm(range(max_budget)):
-            b.step()
-        
-        logger.info(f"Done, writing results to {filename}.")
-        with open(filename, "w") as f:
-            b.result_storage.serialize(f)
+            t_checkpoints = pi.t_checkpoints
+            n_checkpoints = pi.n_checkpoints if captured_parameter == "V[Z_nt]" else [None]
+
+            for n, t in it.product(n_checkpoints, t_checkpoints):
+
+                # define name for result file and skip if we already have results for this
+                filename = f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
+                if pathlib.Path(filename).exists():
+                    print(f"Skipping seed {ensemble_sequence_seed} since result file already exists.")
+                    continue
+
+                # create copy of the problem instance only for this case
+                pi_nt = pi.copy()
+                for _t in pi.t_checkpoints:
+                    if _t != t:
+                        pi_nt.drop_t_checkpoint(_t)
+                if n is not None:
+                    for _n in pi.n_checkpoints:
+                        if _n != n:
+                            pi_nt.drop_n_checkpoint(_n)
+
+                # now create a benchmark for this case
+                b = Benchmark(
+                    problem_instance=pi_nt,
+                    captured_parameters=[captured_parameter],
+                    ensemble_sequence_seed=ensemble_sequence_seed
+                )
+
+                for num_simulated_ensembles in [100, 1000]:
+                    approaches[f"{captured_parameter}::biparametric - {num_simulated_ensembles}"] = ParametricDifferenceModelApproach(
+                        random_state=0,
+                        estimated_parameters=[captured_parameter],
+                        num_simulated_ensembles=num_simulated_ensembles,
+                        logger=a_logger
+                    )
+                
+                for num_resamples, bootstrap_size in it.product([1, 10], [10]):#, 100]):
+                    approaches[f"{captured_parameter}::bootstrapping - {num_resamples}x{bootstrap_size}"] = BootstrappingApproach(
+                        random_state=0,
+                        estimated_parameters=[captured_parameter],
+                        bootstrap_size=bootstrap_size,
+                        num_resamples=num_resamples,
+                        logger=a_logger
+                    )
+            
+                for exp_for_threshold_for_number_of_samples_to_exclude_param in [5, 6]:
+                    approaches[f"{captured_parameter}::model free - 10^{exp_for_threshold_for_number_of_samples_to_exclude_param}"] = DatabaseWiseApproach(
+                        random_state=0,
+                        estimated_parameters=[captured_parameter],
+                        population_mode="stream",
+                        threshold_for_number_of_samples_to_exclude_param=10**exp_for_threshold_for_number_of_samples_to_exclude_param,
+                        logger=a_logger
+                    )
+
+                # configure logger of benchmark
+                bm_logger = logging.getLogger("benchmark")
+                bm_logger.handlers.clear()
+                bm_logger.addHandler(ch)
+                bm_logger.setLevel(logging.WARNING)
+                
+                # run benchmark for 10 iterations (10 ensemble members)
+                logger.info(f"Running experiment on dataset {openmlid} with data seed {data_seed} for {n=} and {t=}, ensemble sequence seed {ensemble_sequence_seed}, {validation_size} validation instances, and {num_possible_ensemble_members} possible ensemble members.")
+                logger.info(f"Computing ground truth")
+                b.reset(approaches)
+                
+                max_budget = 10**3
+                logger.info(f"Done. Now obtaining estimates for ensemble sizes of size up to {max_budget}")
+                for _ in tqdm(range(max_budget)):
+                    b.step()
+                
+                logger.info(f"Done, writing results to {filename}.")
+                with open(filename, "w") as f:
+                    b.result_storage.serialize(f)
 
 
 if __name__ == "__main__":
