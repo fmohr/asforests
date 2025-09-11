@@ -82,7 +82,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             n_checkpoints = pi.n_checkpoints if captured_parameter == "V[Z_nt]" else [None]
 
             folder_for_task = f"{folder}/{captured_parameter}/{openmlid}"
-            pathlib.Path(folder_for_task).mkdir(exists_ok=True, parents=True)
+            pathlib.Path(folder_for_task).mkdir(exist_ok=True, parents=True)
 
             for n, t in it.product(n_checkpoints, t_checkpoints):
 
