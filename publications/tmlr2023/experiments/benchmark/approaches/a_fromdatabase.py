@@ -11,18 +11,18 @@ class DatabaseWiseApproach(DeviationBasedApproach):
     def __init__(
             self,
             threshold_for_number_of_samples_to_exclude_param=10**6,
-            max_number_of_xi_terms_to_include_in_update=10**8,
             population_mode="stream",
             single_data_point_per_ensemble_member=False,
             create_estimates_for_iid_scenario=True,
-            max_number_of_recent_members_to_combine_with=30,
+            max_number_of_recent_members_to_combine_with=np.inf,
             callbacks=[],
             **kwargs
             ):
         super().__init__(**kwargs)
         self.threshold_for_number_of_samples_to_exclude_param = threshold_for_number_of_samples_to_exclude_param
         self.max_number_of_recent_members_to_combine_with = max_number_of_recent_members_to_combine_with
-        self.max_number_of_xi_terms_to_include_in_update = max_number_of_xi_terms_to_include_in_update
+        if max_number_of_recent_members_to_combine_with < np.inf:
+            self.logger.warning(f"max_number_of_recent_members_to_combine_with is set to a value below np.inf, which can seriously hurt performance estimates. Only use this option if you are sure what you are doing.")
         self.population_mode = population_mode
         self.single_data_point_per_ensemble_member = single_data_point_per_ensemble_member
         self.create_estimates_for_iid_scenario = create_estimates_for_iid_scenario
@@ -47,7 +47,6 @@ class DatabaseWiseApproach(DeviationBasedApproach):
             estimate_performance_var_for_iid_case=self.estimating_iid_variance,
             estimate_performance_var_for_conditional_case=self.estimating_conditional_variance,
             max_number_of_recent_members_to_combine_with=self.max_number_of_recent_members_to_combine_with,
-            max_number_of_xi_terms_to_include_in_update=self.max_number_of_xi_terms_to_include_in_update,
             random_state=self.random_state,
             callbacks=self.callbacks,
             logger=logging.getLogger(f"{self.logger.name}.epa")

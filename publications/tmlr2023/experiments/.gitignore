@@ -1,3 +1,5 @@
 logs
 plots
 /experiments.db
+problem_instance/instances
+problem_instance/merged instances

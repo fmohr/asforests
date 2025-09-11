@@ -8,6 +8,7 @@ class ResultStorage:
 
     def __init__(self, true_param_values, n_checkpoints, t_checkpoints, results=None, precision=7):
         self._true_param_values = true_param_values
+
         for p, v in true_param_values.items():
             if p == "V[Z_nt]":
                 if len(v.shape) != 2:
@@ -19,7 +20,7 @@ class ResultStorage:
             expected_shape = (len(n_checkpoints), len(t_checkpoints)) if p == "V[Z_nt]" else (len(t_checkpoints), )
             if v.shape != expected_shape:
                 raise ValueError(f"Shape of ground truth of {p} should be {expected_shape} but is {v.shape}: {v}")
-                
+        
         self._n_checkpoints = [int(n) for n in n_checkpoints]
         self._t_checkpoints = [int(t) for t in t_checkpoints]
         self._precision = precision
@@ -27,7 +28,7 @@ class ResultStorage:
         # self.estimates[p][a][t][b] will contain the estimate for parameter p obtained from approach a for ensemble size t when b ensembles were trained (budget)
         self._results = None
         if results is not None:
-            self.add_results(results)
+            self._results = results # do not conduct a sanity check
 
     @property
     def true_param_values(self):
@@ -66,7 +67,6 @@ class ResultStorage:
             "results": self._results.to_json(orient="records") if self._results is not None else None,
             "precision": self.precision
         }
-        print(d["results"])
 
         if f is None:
 
@@ -95,7 +95,6 @@ class ResultStorage:
         }
         data["results"]["estimate"] = np.round(data["results"]["estimate"], data["precision"])
         data["results"]["runtime"] = np.round(data["results"]["runtime"], data["precision"])
-        
         return cls(**data)
 
     @classmethod

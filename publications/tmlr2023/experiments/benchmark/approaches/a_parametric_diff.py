@@ -1,15 +1,17 @@
 import numpy as np
 import pandas as pd
 from numpy.linalg import lstsq
-from scipy.optimize import nnls
+import itertools as it
 
 from .approach import Approach
 
 import logging
 from tqdm import tqdm
+import time
 
 from sklearn.linear_model import Ridge
 
+import matplotlib.pyplot as plt
 
 class ParametricDifferenceModelApproach(Approach):
 
@@ -30,26 +32,28 @@ class ParametricDifferenceModelApproach(Approach):
         self.show_progress = show_progress
 
         # state variables
-        self._sample_of_ensemble_performances = None
-        self._p_mean = None
-        self._p_cvar = None
+        self._sample_of_ensemble_performances_iid = None
+        self._sample_of_ensemble_performances_cond = None
+        self._p_mean_iid = None
+        self._p_mean_cond = None
+        self.model_v_iid = None
         self.model_v_cond = None
-
     
     def reset(self):
 
         # state
         super().reset()
-        self.prediction_matrices = []
+        self.deviation_matrices = []
         self._sample_of_ensemble_performances = None
-        self._p_mean = self._p_cvar = self._p_iidvar = None
+        self._p_mean_cond = self._p_cvar_cond = self._p_iidvar = None
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
-        self.prediction_matrices.append(prediction_matrix)
+        self.deviation_matrices.append(prediction_matrix - self.y_oh)
         self._sample_of_ensemble_performances = None
-        self._p_mean = self._p_cvar = self._p_iidvar = None
+        self._p_mean_cond = self._p_mean_iid = self._p_cvar_cond = self._p_iidvar = None
+        self.model_v_iid = None
         self.model_v_cond = None
-        self.logger.info(f"Added prediction matrix #{len(self.prediction_matrices)} of shape {prediction_matrix.shape}")
+        self.logger.info(f"Added deviation matrix #{len(self.deviation_matrices)} of shape {prediction_matrix.shape}")
     
     
     def _get_schedule_for_max_anchor(self, max_anchor=10**3):
@@ -57,114 +61,135 @@ class ParametricDifferenceModelApproach(Approach):
            :param max_anchor: this variable define up to which t we want to create data points. Could be `b` or some constant
         """
         schedule = sorted(set([int(np.round(2**(i / 4))) for i in range(int(4 * np.log2(max_anchor) + 1))]))
-        #return np.round(np.concatenate([
-         #   np.linspace(1, 10**2, 10)
-            #np.linspace(10**2, max_anchor, 10)
-        #])).astype(int)
         if max_anchor not in schedule:
             schedule.append(max_anchor)
         return np.array(schedule)
 
-    def _sample_ensemble_performances_at_schedule(self):
-        b = len(self.prediction_matrices)
-        max_anchor = max(10**3, b)
-        self.logger.info(f"Drawing {self.num_simulated_ensembles} ensembles of size {b}")
-        schedule = self._get_schedule_for_max_anchor(max_anchor)
+    def _sample_ensemble_performances_at_anchors(self, iid_data, n, t, num_samples):
+
+        deviation_matrices = np.array(self.deviation_matrices)
+        b = len(deviation_matrices)
+        
+        # to compute the ensemble behaviors, we usually need matrices that don't fit into memory, so we compute them in batches
+        required_entries = t * num_samples * (n if iid_data else deviation_matrices.shape[1]) * deviation_matrices.shape[2]
+        MAX_ENTRIES_IN_MATRIX = 10**8
+        max_batch_size = int(np.ceil(MAX_ENTRIES_IN_MATRIX / (t * (n if iid_data else deviation_matrices.shape[1]) * deviation_matrices.shape[2])))
+        num_batches = int(np.ceil(required_entries / MAX_ENTRIES_IN_MATRIX))
+        num_remaining_entries = num_samples
+        self.logger.debug(f"Computing {num_samples} ensemble prediction matrices at anchor {n}, {t} in {num_batches} batches; {iid_data=}.")
+        
+        # get matrices with ensemble predictions on validation or iid sampled data (factorizing out ensemble member behavior)
+        ensemble_deviation_matrix_collection = []
+        for _ in range(num_batches):
+
+            # first get prediction matrices for all ensemble members of all ensembles in the current batch
+            actual_batch_size = min(num_remaining_entries, max_batch_size)
+            ensemble_members_in_batch = self.random_state.randint(0, b, size=t * actual_batch_size)
+            ensemble_member_deviations = deviation_matrices[ensemble_members_in_batch].reshape((t, actual_batch_size) + deviation_matrices.shape[1:]) # shape: (t, actual_batch_size, n, k)
+
+            # in the case of iid data, the prediction matrices should not be over the validation data but over randomly sampled instances
+            if iid_data:
+                instance_indices_in_batch = self.random_state.randint(0, deviation_matrices.shape[1], size=(actual_batch_size, n))
+                instance_indices_in_batch = instance_indices_in_batch[None, :, :, None]
+                ensemble_member_deviations = np.take_along_axis(ensemble_member_deviations, instance_indices_in_batch, axis=2)
+            
+            # check the shape of the ensemble member predictions
+            assert ensemble_member_deviations.shape == (t, actual_batch_size, deviation_matrices.shape[1] if not iid_data else n, deviation_matrices.shape[2]), f"Expected shape {(t, actual_batch_size, deviation_matrices.shape[1], deviation_matrices.shape[2])}, got {ensemble_member_deviations.shape}."
+            
+            # get ensemble deviations by aggregating the deviations across members
+            ensemble_deviation_matrix_collection.append(ensemble_member_deviations.mean(axis=0))
+            num_remaining_entries -= actual_batch_size
+        ensemble_deviation_matrices = np.concatenate(ensemble_deviation_matrix_collection)
+        self.logger.debug(f"Computed {actual_batch_size} ensemble prediction matrices at anchor {t} of shape {ensemble_deviation_matrices.shape}.")
+        
+        # compute the errors for each ensemble
+        errors_for_this_size = (ensemble_deviation_matrices**2).mean(axis=1).sum(axis=1)
+        assert errors_for_this_size.shape == (num_samples, ), f"Expected shape {(num_samples, )}, got {errors_for_this_size.shape}."
+        return errors_for_this_size
+
+    def _sample_ensemble_performances_at_schedule(self, iid_data: bool):
+        b = len(self.deviation_matrices)
+        max_anchor_for_t = max(10**3, b)
+        max_anchor_for_n = 32
+        schedule_for_t = self._get_schedule_for_max_anchor(max_anchor_for_t)
+        schedule_for_n = self._get_schedule_for_max_anchor(max_anchor_for_n)
 
         # compute data for parametric learning problem
-        sizes = []
+        num_samples_per_case = self.num_simulated_ensembles / len(schedule_for_t)
+        if iid_data and "V[Z_nt]" in self.estimated_parameters:
+            num_samples_per_case /= len(schedule_for_n)
+        num_samples_per_case = max(1, int(num_samples_per_case))
+        max_index_for_overhead = self.num_simulated_ensembles - num_samples_per_case * len(schedule_for_t) * (len(schedule_for_n) if iid_data and "V[Z_nt]" in self.estimated_parameters else 1)
+        
+        t_vals = []
+        n_vals = []
         errors = []
-        if self.anchors == "full":
-            self.logger.info(f"Computing database with full schedule")
-            ensembles_in_batch = self.random_state.randint(0, b, size=(max_anchor, self.num_simulated_ensembles))
-            for ensemble in ensembles_in_batch:
-                ensemble_prediction_matrices = np.zeros(self.prediction_matrices[0].shape)
-                for s, i in enumerate(ensemble, start=1):
-                    ensemble_prediction_matrices += (self.prediction_matrices[i] - ensemble_prediction_matrices) / s
-                    error_of_this_ensemble = ((ensemble_prediction_matrices - self.y_oh)**2).mean(axis=0).sum()
-                    sizes.append(s)
-                    errors.append(error_of_this_ensemble)
-            errors = np.array(errors)
-            
-        elif self.anchors.startswith("power"):
-            self.logger.info(f"Computing database. Using geometric schedule with anchors {schedule}.")
-            matrices = np.array(self.prediction_matrices)
-            for size in schedule: # create data for each anchor on the schedule. The anchor is used for both ensemble size and number of application instances (relevant for estimate of V[Z_nt])
-                required_entries = size * self.num_simulated_ensembles * matrices.shape[1] * matrices.shape[2]
-                MAX_ENTRIES_IN_MATRIX = 10**8
-                max_batch_size = int(np.ceil(MAX_ENTRIES_IN_MATRIX / (size * matrices.shape[1] * matrices.shape[2])))
-                num_batches = int(np.ceil(required_entries / MAX_ENTRIES_IN_MATRIX))
-                ensemble_prediction_matrix_collection = []
-                self.logger.debug(f"Computing {self.num_simulated_ensembles} ensemble prediction matrices at anchor {size} in {num_batches} batches.")
-                num_remaining_entries = self.num_simulated_ensembles
-                for batch_idx in range(num_batches):
-                    actual_batch_size = min(num_remaining_entries, max_batch_size)
-                    ensembles_in_batch = self.random_state.randint(0, b, size=(max_anchor, actual_batch_size))
-                    ensemble_member_predictions = matrices[ensembles_in_batch[:size].ravel()].reshape((size, ensembles_in_batch.shape[1]) + matrices.shape[1:])
-                    ensemble_prediction_matrix_collection.append(ensemble_member_predictions.mean(axis=0))
-                    num_remaining_entries -= actual_batch_size
-                ensemble_prediction_matrices = np.concatenate(ensemble_prediction_matrix_collection)
-                self.logger.debug(f"Computed ensemble prediction matrices at anchor {size} of shape {ensemble_prediction_matrices.shape}.")
-                errors_for_this_size = ((ensemble_prediction_matrices - self.y_oh)**2).mean(axis=1).sum(axis=1)
-                added_errors = errors_for_this_size.ravel()
-                sizes.extend(len(added_errors) * [size])
-                errors.extend(added_errors)
-        self._sample_of_ensemble_performances = pd.DataFrame(data={"t": sizes, "Z_nt": errors})
-        self.logger.info(f"Done. Database has {len(self._sample_of_ensemble_performances)} entries.")
+        self.logger.info(f"Computing database. Using geometric schedule with {len(schedule_for_t)} anchors for t {schedule_for_t}.")
+        i = 0
+        for t in schedule_for_t: # create data for each anchor on the schedule. The anchor is used for both ensemble size and number of application instances (relevant for estimate of V[Z_nt])
+            if i >= self.num_simulated_ensembles:
+                break
+            if iid_data:
+                if "V[Z_nt]" in self.estimated_parameters:
+                    for n in schedule_for_n:
+                        if i >= self.num_simulated_ensembles:
+                            break
+                        errors_for_this_size = self._sample_ensemble_performances_at_anchors(iid_data=True, n=n, t=t, num_samples=num_samples_per_case + (1 if i < max_index_for_overhead else 0))
+                        t_vals.extend(len(errors_for_this_size) * [t])
+                        n_vals.extend(len(errors_for_this_size) * [n])
+                        errors.extend(errors_for_this_size)
+                        i += 1
+                else:
+                    errors_for_this_size = self._sample_ensemble_performances_at_anchors(iid_data=True, n=1, t=t, num_samples=num_samples_per_case + (1 if i < max_index_for_overhead else 0))
+                    t_vals.extend(len(errors_for_this_size) * [t])
+                    n_vals.extend(len(errors_for_this_size) * [1])
+                    errors.extend(errors_for_this_size)
+                    i += 1
+            else:
+                errors_for_this_size = self._sample_ensemble_performances_at_anchors(iid_data=False, n=None, t=t, num_samples=num_samples_per_case + (1 if i < max_index_for_overhead else 0))
+                t_vals.extend(len(errors_for_this_size) * [t])
+                n_vals.extend(len(errors_for_this_size) * [None])
+                errors.extend(errors_for_this_size)
+                i += 1
+        
+        # store the observed performances in the respective dataframe
+        df = pd.DataFrame(data={"t": t_vals, "n": n_vals, "Z_nt": errors})
+        self.logger.info(f"Done. Database has {len(df)} entries.")
+        if iid_data:
+            self._sample_of_ensemble_performances_iid = df
+        else:
+            self._sample_of_ensemble_performances_cond = df
 
     
-    def _estimate_params_for_mean(self):
-        # if we do not have enough observations, return 0
-        # TODO: return empirical mean
-        b = len(self.prediction_matrices)
+    def _estimate_params_for_mean(self, iid_data: bool):
         
         # create permutations
-        self._sample_ensemble_performances_at_schedule()
+        self._sample_ensemble_performances_at_schedule(iid_data)
 
         # estimate parameters for mean
         self.logger.info(f"Now fitting the model.")
-        X = np.column_stack((np.ones(len(self._sample_of_ensemble_performances)), 1 / np.array(self._sample_of_ensemble_performances["t"])))
-        self._p_mean = lstsq(X, self._sample_of_ensemble_performances["Z_nt"])[0]
-
-
-        #import matplotlib.pyplot as plt
-        #fig, ax = plt.subplots()
-        #domain = np.linspace(0, 1000, 100)
-        #ax.plot(domain, self._p_mean[0] + self._p_mean[1] / domain, marker="o")
-        #plt.show()
-        
-        self.logger.info(f"Done, stored values {self._p_mean}.")
+        sampled_performances = self._sample_of_ensemble_performances_iid if iid_data else self._sample_of_ensemble_performances_cond
+        X = np.column_stack((np.ones(len(sampled_performances)), 1 / np.array(sampled_performances["t"])))
+        p = lstsq(X, sampled_performances["Z_nt"])[0]
+        if iid_data:
+            self._p_mean_iid = p
+        else:
+            self._p_mean_cond = p
+        self.logger.info(f"Done, stored values {self._p_mean_cond}.")
     
     def _estimate_params_for_conditional_var(self):
-        # if we do not have enough observations, return 0
-        # TODO: return empirical mean
-        b = len(self.prediction_matrices)
-        if b < 1:
-            self._p_cvar = np.zeros(4)
-            return
-
-        # sample new ensembles 
-        # OBSOLETE, BECAUSE THIS IS ALSO DONE INTERNALLY WHEN GETTING THE MUS
-        #self._sample_ensemble_performances_at_schedule()
         
-        #mse_hist = []
-        #anchors = [2**i for i in range(14)]
-        #for anchor in anchors:
-
-            #sub_frame = self._sample_of_ensemble_performances.sample(n=anchor)
-        
-        # 
+        # get mean performances at each t in the schedule
+        b = len(self.deviation_matrices)
         schedule = self._get_schedule_for_max_anchor(max(10**3, b))
-        mus = self.estimate_performance_mean_in_conditional_setup(t=schedule)
+        means = self.estimate_performance_mean_in_conditional_setup(t=schedule)
 
         # the ensemble performances at the schedule were implicitly computed, so we can now use them to define the targets
-        schedule = []
         sizes = []
         targets = []
-        for (t, df_t), mu in zip(self._sample_of_ensemble_performances.groupby("t"), mus):
+        for (t, df_t), mean in zip(self._sample_of_ensemble_performances_cond.groupby("t"), means):
             sizes.extend([t] * len(df_t))
-            targets.extend((mu - df_t["Z_nt"])**2)
-            schedule.append(t)
+            targets.extend((mean - df_t["Z_nt"])**2)
         sizes = np.array(sizes)
         targets = np.array(targets)
 
@@ -173,138 +198,63 @@ class ParametricDifferenceModelApproach(Approach):
         X = np.column_stack((np.ones_like(sizes), 1 / np.array(sizes), 1 / np.array(sizes)**2, 1 / np.array(sizes)**3))
         self.model_v_cond = Ridge(alpha=0.0)
         self.model_v_cond.fit(X, targets, sample_weight=sizes)#1 / (targets**2 + 10**-10))
-        #self._p_cvar = lstsq(X, targets)[0]
+        self.logger.info(f"Model for parameters of V[Z_nt|D_val] ready.")
 
-        if False and len(self.prediction_matrices) > 2:
-            #pred = self.model_v_cond.predict(X)
-            #pred = (self._p_cvar[0] + self._p_cvar[1] / sizes + self._p_cvar[2] / sizes**2 + self._p_cvar[3] / sizes**3)
-            pred = self.estimate_performance_var_in_conditional_setup(sizes)
-            mse = ((targets - pred)**2).mean()
-            #mse_hist.append(mse)
+    def _estimate_params_for_iid_var(self, n):
 
-            # show learning results
-            import matplotlib.pyplot as plt
-            fig, axs = plt.subplots(1, 3, figsize=(10, 3))
-            
-            ax = axs[0]
-            ax.scatter(targets, pred, c=np.log10(sizes), cmap="Blues")
-            ax.grid()
-            ax.plot([0, 1], [0, 1], color="black", linestyle="--")
-            ax.set_xscale("log")
-            ax.set_yscale("log")
-            ax.set_xlim([10**-10, 1])
-            ax.set_ylim([10**-10, 1])
-            ax.set_title(f"Round {len(self.prediction_matrices)} - MSE: {mse}")
-            
-            ax = axs[1]
-            #ax.plot(schedule, self.model_v_cond.predict(np.array([np.ones_like(schedule), 1 / schedule, 1 / schedule **2, 1 / schedule**3]).T))
-            plot_schedule = np.arange(1, 1001)
-            ax.plot(plot_schedule, self.estimate_performance_var_in_conditional_setup(t=plot_schedule))
-            ax.plot(schedule, [
-                np.mean(targets[sizes == t])
-                for t in np.unique(sizes)
-            ])
-            ax.grid()
-            ax.set_xscale("log")
-            ax.set_yscale("log")
+        # get mean performances at each t in the schedule
+        b = len(self.deviation_matrices)
+        schedule = self._get_schedule_for_max_anchor(max(10**3, b))
+        means = self.estimate_performance_mean_in_iid_setup(t=schedule)
 
-            ax = axs[2]
-            cols = []
-            t_domain = sorted(np.unique(sizes))
-            for i, t in enumerate(t_domain):
-                mask = sizes == t
-                cols.append(targets[mask])
-                ax.scatter([i + 1], [pred[mask].mean()], color="red", s=50)
-            ax.boxplot(cols)
-            ax.set_yscale("log")
-            ax.set_xticklabels(t_domain)
-
-            plt.show()
-            #exit(0)
-        
-
-        self.logger.info("Successfully fitted model for the variance.")
-
-    def _estimate_params_for_iid_var(self):
-        # if we do not have enough observations, return 0
-        # TODO: return empirical mean
-        b = len(self.prediction_matrices)
-        if b < 7:
-            self._p_iidvar  = np.zeros(7)
-            return
-        
-        # this variable define up to which t we want to create data points. Could be `b` or some constant
-        max_anchor = 10**3
-        
-        # estimate E[Z_nt] at all anchors in the schedule
-        means_at_schedule_points = {
-            t: self.estimate_performance_mean_in_iid_setup(t=[t])[0]
-            for t in self._get_schedule_for_max_anchor(max_anchor)
-        }
-        
-        # the ensemble performances at the schedule were implicitly computed, so we can now use them to define the targets
-        sizes = []
+        # use two loops to gather data, because means are invariant to n and should only be paired with t
+        vals_t = []
+        vals_n = []
         targets = []
-        for t, df_t in self._sample_of_ensemble_performances.groupby("t"):
-            mu = means_at_schedule_points[t]
-            sizes.extend([t] * len(df_t))
-            targets.extend((mu - df_t["Z_nt"])**2)
-        n = self.prediction_matrices[0].shape[0]
-        print(n)
-        sizes = np.array(sizes)
+        for (t, df_t), mean in zip(self._sample_of_ensemble_performances_iid.groupby("t"), means):
+            for n, df_nt in df_t.groupby("n"):
+                vals_t.extend([t] * len(df_nt))
+                vals_n.extend([n] * len(df_nt))
+                targets.extend((mean - df_nt["Z_nt"])**2)
+        vals_t = np.array(vals_t)
+        vals_n = np.array(vals_n)
+        targets = np.array(targets)
 
         # estimate parameters for mean
-        self.logger.info(f"Now fitting {len(targets)} models, one per target.")
-        X = np.column_stack((np.ones_like(sizes) / n, 1 / (n * sizes), 1 / (n * sizes**2), 1 / (n * sizes**3), 1 / sizes, 1 / sizes**2, 1 / sizes**3))
-        self._p_iidvar = nnls(X, targets)[0]
+        self.logger.info(f"Now fitting a model with {len(targets)} datapoints.")
+        X = np.column_stack((1 / vals_n, 1 / (vals_n * vals_t), 1 / (vals_n * vals_t**2), 1 / (vals_n * vals_t**3), 1 / vals_t, 1 / vals_t**2, 1 / vals_t**3))
+        self.model_v_iid = Ridge(alpha=0.0)
+        self.model_v_iid.fit(X, targets)#, sample_weight=vals_t)
         self.logger.info("Successfully fitted model for the variance.")
 
     def estimate_performance_mean_in_iid_setup(self, t):
         t = np.asarray(t).reshape(-1)
-        if self._p_mean is None:
-            self._estimate_params_for_mean()
-        return self._p_mean[0] + self._p_mean[1] / t
+        if self._p_mean_iid is None:
+            self._estimate_params_for_mean(iid_data=True)
+        return self._p_mean_iid[0] + self._p_mean_iid[1] / t
     
     def estimate_performance_mean_in_conditional_setup(self, t):
         t = np.asarray(t).reshape(-1)
-        if self._p_mean is None:
-            self._estimate_params_for_mean()
-        return self._p_mean[0] + self._p_mean[1] / t
+        if self._p_mean_cond is None:
+            self._estimate_params_for_mean(iid_data=False)
+        return self._p_mean_cond[0] + self._p_mean_cond[1] / t
 
     def estimate_performance_var_in_iid_setup(self, n, t):
         n = np.asarray(n).reshape(-1)
         t = np.asarray(t).reshape(-1)
-        if self._p_iidvar is None:
-            self._estimate_params_for_iid_var()
-        if not isinstance(t, np.ndarray):
-            if not isinstance(t, list):
-                t = [t]
-            t = np.array(t)
-        if not isinstance(n, np.ndarray):
-            if not isinstance(n, list):
-                n = [n]
-            n = np.array(n)
-        return np.maximum(0, np.array(
-            [
-                self._p_iidvar[0] / _n +
-                self._p_iidvar[1] / (_n * t) +
-                self._p_iidvar[2] / (_n * t**2) +
-                self._p_iidvar[3] / (_n * t**3) +
-                self._p_iidvar[4] / t +
-                self._p_iidvar[5] / t**2 +
-                self._p_iidvar[6] / t**3
-                for _n in n
-            ]).reshape((len(n), len(t)))) # make sure to not return negative values
+        if self.model_v_iid is None:
+            self._estimate_params_for_iid_var(n)
+        
+        nt_pairs = it.product(n, t)
+        queries = np.array([
+            [np.ones_like(_t) / _n, 1 / (_n * _t), 1 / (_n * _t**2), 1 / (_n * _t**3), 1 / _t, 1 / _t**2, 1 / _t**3]
+            for _n, _t in nt_pairs
+        ])
+        return self.model_v_iid.predict(queries).reshape(len(n), len(t))
     
     def estimate_performance_var_in_conditional_setup(self, t):
         t = np.asarray(t).reshape(-1)
-        #if self._p_cvar is None:
-            #self._estimate_params_for_conditional_var()
-        #return (self._p_cvar[0] + self._p_cvar[1] / t + self._p_cvar[2] / t**2 + self._p_cvar[3] / t**3)
         if self.model_v_cond is None:
             self._estimate_params_for_conditional_var()
         
         return self.model_v_cond.predict(np.array([np.ones_like(t), 1 / t, 1 / t**2, 1 / t**3]).T)
-        #else:
-            #return np.zeros_like(t)
-        

@@ -381,6 +381,19 @@ class ProblemInstance:
             n_jobs=n_jobs
         )
     
+    def drop_t_checkpoint(self, t):
+        index_to_remove = list(self.t_checkpoints).index(t)
+        self.t_checkpoints = np.delete(self.t_checkpoints, index_to_remove)
+        self._true_means_for_iid_case = np.delete(self._true_means_for_iid_case, index_to_remove)
+        self._true_vars_for_iid_case = np.delete(self._true_vars_for_iid_case, index_to_remove, axis=1)
+        self._true_means_for_cond_case = np.delete(self._true_means_for_cond_case, index_to_remove)
+        self._true_vars_for_cond_case = np.delete(self._true_vars_for_cond_case, index_to_remove)
+
+    def drop_n_checkpoint(self, n):
+        index_to_remove = list(self.n_checkpoints).index(n)
+        self.n_checkpoints = np.delete(self.n_checkpoints, index_to_remove)
+        self._true_vars_for_iid_case = np.delete(self._true_vars_for_iid_case, index_to_remove, axis=0)
+    
     def get_prediction_matrix_id_generator(self, ensemble_sequence_seed=None):
         prediction_generator_rs = np.random.RandomState(ensemble_sequence_seed)
         def f():

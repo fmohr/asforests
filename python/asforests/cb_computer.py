@@ -108,7 +108,6 @@ class EnsemblePerformanceAssessor:
             estimate_deviation_covs=True,
             estimate_performance_var_for_iid_case=True,
             estimate_performance_var_for_conditional_case=True,
-            max_number_of_xi_terms_to_include_in_update=10**5,
             max_number_of_recent_members_to_combine_with=np.inf,
             random_state=None,
             execute_asserts=False,
@@ -145,7 +144,6 @@ class EnsemblePerformanceAssessor:
         self.max_number_of_recent_members_to_combine_with = max_number_of_recent_members_to_combine_with
         self.execute_asserts = execute_asserts
         self.enable_asserts = enable_asserts
-        self.max_number_of_xi_terms_to_include_in_update = max_number_of_xi_terms_to_include_in_update
         for i, callback in enumerate(callbacks):
             if not isinstance(callback, Callback):
                 raise ValueError(f"Callback #{i} should be of type {__file__}.Callback but is {type(callback)}")
@@ -173,7 +171,6 @@ class EnsemblePerformanceAssessor:
         self.cov_updater_for_iid_case_arbitrary_instances = None
         self.xi_terms = None
         self.xi_term_means = None
-        self.num_included_term_pairs = 0
         self.data_points_processed_for_cov_estimate = 0
 
     @property
@@ -351,11 +348,6 @@ class EnsemblePerformanceAssessor:
             callback.on_round_end()
                 
     def update_estimates_of_covs_of_xi_terms_based_on_last_added_deviation_matrix(self):
-
-        if self.num_included_term_pairs > self.max_number_of_xi_terms_to_include_in_update:
-            self.logger.info(f"Reached maximum number of estimates, ignoring new data.")
-            return
-
         
         self.logger.info("Updating estimate of covariance terms for variance estimation.")
 
