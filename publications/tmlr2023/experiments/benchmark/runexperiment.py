@@ -39,7 +39,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     logger.addHandler(ch)
     logger.setLevel(logging.INFO)
 
-    folder = f"results/"
+    folder = f"results"
     pathlib.Path(folder).mkdir(exist_ok=True, parents=True)
 
     openmlid = int(keyfields["openmlid"])
@@ -84,8 +84,9 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             for n, t in it.product(n_checkpoints, t_checkpoints):
 
                 # define name for result file and skip if we already have results for this
-                filename = f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
-                if pathlib.Path(filename).exists():
+                filename = f"{folder}/{captured_parameter}_{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
+                gz_filename = f"{filename}.gz"
+                if pathlib.Path(gz_filename).exists():
                     print(f"Skipping seed {ensemble_sequence_seed} since result file already exists.")
                     continue
 
@@ -98,9 +99,15 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                     for _n in pi.n_checkpoints:
                         if _n != n:
                             pi_nt.drop_n_checkpoint(_n)
+                else:
+                    for _n in pi.n_checkpoints:
+                        pi_nt.drop_n_checkpoint(_n)
+                
                 assert len(pi_nt.t_checkpoints) == 1
                 if captured_parameter == "V[Z_nt]":
                     assert len(pi_nt.n_checkpoints) == 1
+                else:
+                    assert len(pi_nt.n_checkpoints) == 0
 
                 # now create a benchmark for this case
                 b = Benchmark(
@@ -151,9 +158,9 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                 for _ in tqdm(range(max_budget)):
                     b.step()
                 
-                logger.info(f"Done, writing results to {filename}.")
-                with open(filename, "w") as f:
-                    b.result_storage.serialize(f)
+                logger.info(f"Done, writing results to {gz_filename}.")
+                with gzip.open(gz_filename, "wt", encoding="utf-8") as f:
+                    f.write(b.result_storage.serialize())
 
 
 if __name__ == "__main__":
