@@ -133,7 +133,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         logger.info(f"Computing ground truth")
         b.reset(approaches)
         
-        max_budget = 30
+        max_budget = 10**3
         logger.info(f"Done. Now obtaining estimates for ensemble sizes of size up to {max_budget}")
         for _ in tqdm(range(max_budget)):
             b.step()
