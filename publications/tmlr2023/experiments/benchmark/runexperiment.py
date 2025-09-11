@@ -98,6 +98,9 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                     for _n in pi.n_checkpoints:
                         if _n != n:
                             pi_nt.drop_n_checkpoint(_n)
+                assert len(pi_nt.t_checkpoints) == 1
+                if captured_parameter == "V[Z_nt]":
+                    assert len(pi_nt.n_checkpoints) == 1
 
                 # now create a benchmark for this case
                 b = Benchmark(

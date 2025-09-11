@@ -139,6 +139,8 @@ class ProblemInstance:
                 self._compute_exact_ground_truth_iid()
             else:
                 self._approximate_ground_truth_parameters()
+        else:
+            self.logger.info("Ground truth was cached, not re-computing.")
         assert self._true_means_for_iid_case is not None, "E[Z_nt] was not computed or approximated."
         return self._true_means_for_iid_case
     
@@ -149,6 +151,8 @@ class ProblemInstance:
                 self._compute_exact_ground_truth_iid()
             else:
                 self._approximate_ground_truth_parameters()
+        else:
+            self.logger.info("Ground truth was cached, not re-computing.")
         assert self._true_vars_for_iid_case is not None, "V[Z_nt] was not computed or approximated."
         return self._true_vars_for_iid_case
     
@@ -159,6 +163,8 @@ class ProblemInstance:
                 self._compute_exact_ground_truth_cond()
             else:
                 self._approximate_ground_truth_parameters()
+        else:
+            self.logger.info("Ground truth was cached, not re-computing.")
         assert self._true_means_for_cond_case is not None, "E[Z_nt|D_val] was not computed or approximated."
         return self._true_means_for_cond_case
     
@@ -169,6 +175,8 @@ class ProblemInstance:
                 self._compute_exact_ground_truth_cond()
             else:
                 self._approximate_ground_truth_parameters()
+        else:
+            self.logger.info("Ground truth was cached, not re-computing.")
         assert self._true_vars_for_cond_case is not None, "V[Z_nt|D_val] was not computed or approximated."
         return self._true_vars_for_cond_case
 
