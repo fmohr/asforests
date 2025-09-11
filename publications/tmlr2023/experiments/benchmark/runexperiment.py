@@ -73,7 +73,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         assert pi._true_vars_for_cond_case.shape == (len(pi.t_checkpoints), )
         #assert len(pi._indices_val) == validation_size, f"There should be {validation_size} validation instances, but there are {len(pi._indices_val)}"
 
-    for ensemble_sequence_seed in range(5):
+    for ensemble_sequence_seed in range(1):
 
         # define name for result file and skip if we already have results for this
         filename = f"{folder}/{openmlid}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
