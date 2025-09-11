@@ -118,7 +118,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                 random_state=0,
                 estimated_parameters=[captured_parameter],
                 population_mode="stream",
-                threshold_for_number_of_samples_to_exclude_param=10**6,
+                threshold_for_number_of_samples_to_exclude_param=10**5,
                 logger=a_logger
             )
 
