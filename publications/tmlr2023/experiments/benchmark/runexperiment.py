@@ -90,7 +90,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                 filename = f"{folder_for_task}/{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{training_instances_per_class}_{validation_size}_{n}_{t}.json"
                 gz_filename = f"{filename}.gz"
                 if pathlib.Path(gz_filename).exists():
-                    print(f"Skipping seed {ensemble_sequence_seed} since result file already exists.")
+                    print(f"Skipping seed {ensemble_sequence_seed} and n/t combo {n}/{t} since result file {gz_filename} already exists.")
                     continue
 
                 # create copy of the problem instance only for this case
