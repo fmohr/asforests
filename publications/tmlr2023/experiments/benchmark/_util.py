@@ -21,7 +21,7 @@ def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_
     failed_tries = 0
     classes = None
     prediction_matrices = []
-    prediction_matrices_as_str = set()
+    #prediction_matrices_as_str = set()
     n_estimators = max(10, num_matrices)
     while len(prediction_matrices) < num_matrices and failed_tries < max_tries:
 
@@ -42,10 +42,11 @@ def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_
         # update deviation metrices
         size_before = len(prediction_matrices)
         for prediction_matrix in [t.predict_proba(X) for t in ensemble_members]:
-            pm_as_str = str(prediction_matrix)
-            if pm_as_str not in prediction_matrices_as_str:
-                prediction_matrices_as_str.add(pm_as_str)
+            #pm_as_str = str(prediction_matrix)
+            if not np.any([np.allclose(m, prediction_matrix) for m in prediction_matrices]):
                 prediction_matrices.append(prediction_matrix)
+                if len(prediction_matrices) == num_matrices:
+                    break
 
         size_after = len(prediction_matrices)
         if size_before == size_after:
