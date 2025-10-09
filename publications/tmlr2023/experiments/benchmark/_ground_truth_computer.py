@@ -89,7 +89,7 @@ class GroundTruthComputer:
         self.logger.info(
             f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
             f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints) * len(n_checkpoints)} n-t-combinations. "
-            f"Sample values will be determine {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
+            f"Sample values will be determined {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
             f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations.")
         
 
