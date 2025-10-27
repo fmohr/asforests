@@ -1,18 +1,15 @@
 from approaches import DatabaseWiseApproach
-from tqdm import tqdm
 import numpy as np
 
 from asforests.cb_computer import EnsemblePerformanceAssessor
 
-from _ground_truth_computer import GroundTruthComputer
+from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
 
 from sklearn.datasets import make_classification
 from sklearn.model_selection import StratifiedShuffleSplit
 from experiments.benchmark._util import get_unique_prediction_matrices
 
 from experiments.benchmark.tests.util import ApproachTestClass, ProblemInstanceWrapperForTesting
-from parameterized import parameterized
-import unittest
 
 import itertools as it
 

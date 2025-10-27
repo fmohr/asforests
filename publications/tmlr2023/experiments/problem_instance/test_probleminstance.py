@@ -1,6 +1,6 @@
 import pytest
 from experiments.problem_instance.problem_instance import ProblemInstance
-from experiments.benchmark._ground_truth_computer import GroundTruthComputer
+from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
 from sklearn.datasets import make_classification
 import numpy as np
 import itertools as it

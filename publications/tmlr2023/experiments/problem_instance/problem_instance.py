@@ -13,7 +13,7 @@ import logging
 from time import time
 
 from experiments.benchmark._util import get_unique_prediction_matrices
-from experiments.benchmark._ground_truth_computer import GroundTruthComputer
+from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
 
 
 class ProblemInstance:

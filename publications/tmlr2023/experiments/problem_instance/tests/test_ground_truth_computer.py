@@ -4,11 +4,9 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from approaches import DatabaseWiseApproach
-from tqdm import tqdm
 import numpy as np
 
-from _ground_truth_computer import GroundTruthComputer
+from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
 
 from sklearn.datasets import make_classification
 from sklearn.model_selection import StratifiedShuffleSplit
@@ -17,7 +15,6 @@ from experiments.benchmark._util import get_unique_prediction_matrices
 from unittest import TestCase
 from parameterized import parameterized
 
-import itertools as it
 
 from time import time
 
@@ -38,7 +35,7 @@ logger.addHandler(ch)
 logger.setLevel(logging.DEBUG)
 
 
-class TestDatabaseBasedApproach(TestCase):
+class TestGroundTruthComputer(TestCase):
 
     @parameterized.expand(range(10))
     def test_approximation_correctness_for_iid(self, seed):

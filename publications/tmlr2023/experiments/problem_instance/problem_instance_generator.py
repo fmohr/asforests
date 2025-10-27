@@ -1,5 +1,5 @@
 from experiments.problem_instance.problem_instance import ProblemInstance
-from experiments.benchmark._ground_truth_computer import GroundTruthComputer
+from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
 from py_experimenter.experimenter import PyExperimenter
 from pathlib import Path
 
@@ -127,6 +127,15 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
+    N_JOBS = 1
+    NUM_SAMPLES = 10**5
+    run_experiment(keyfields={
+        "openmlid": 1590,
+        "num_possible_ensemble_members": 256,
+        "data_seed": 9,
+        "validation_instances": 64
+    }, result_processor=None, custom_config=None)
+    exit(0)
 
     if len(sys.argv) != 3:
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
