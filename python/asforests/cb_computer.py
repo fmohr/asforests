@@ -346,9 +346,17 @@ class EnsemblePerformanceAssessor:
         # execute callbacks
         for callback in self.callbacks:
             callback.on_round_end()
-                
+
     def update_estimates_of_covs_of_xi_terms_based_on_last_added_deviation_matrix(self):
-        
+        if (
+            (self.estimate_performance_var_for_iid_case and (
+                (self.cov_updater_for_iid_case_equal_instances is not None and not self.cov_updater_for_iid_case_equal_instances.is_active) and
+                (self.cov_updater_for_iid_case_arbitrary_instances is not None and not self.cov_updater_for_iid_case_arbitrary_instances.is_active)
+            )) or
+            (self.estimate_performance_var_for_conditional_case and self.cov_updater_for_conditional_case is not None and not self.cov_updater_for_conditional_case.is_active)
+        ):
+            self.logger.debug("Skipping cov updates since no cov updater is active anymore.")
+            return
         self.logger.info("Updating estimate of covariance terms for variance estimation.")
 
         # initialize moment builders
@@ -387,21 +395,34 @@ class EnsemblePerformanceAssessor:
             )
         
         # compute new xi-terms that can be shaped thanks to the newly added ensemble member
+        need_xi_terms_for_pairs = (
+            (self.cov_updater_for_conditional_case is not None and self.cov_updater_for_conditional_case.will_use_xi_terms_for_pairs) |
+            (self.cov_updater_for_iid_case_equal_instances is not None and self.cov_updater_for_iid_case_equal_instances.will_use_xi_terms_for_pairs) |
+            (self.cov_updater_for_iid_case_arbitrary_instances is not None and self.cov_updater_for_iid_case_arbitrary_instances.will_use_xi_terms_for_pairs)
+        )
         new_xi_terms = []
         n, t = self.n, self.t
-        self.logger.debug(f"Computing {n * (2*t - 1)} new xi-terms") # for each instance, it is one \xi_i^tt for the new ensemble member and (t-1) \xi_i^st for each previous ensemble member
-        for i in range(n):
-            other_s = self.t - 1
-            if np.any(np.isnan(self.deviation_matrices[other_s][i])):
-                continue
-            for s in range(other_s + 1):
-                if np.any(np.isnan(self.deviation_matrices[s][i])):
+        if need_xi_terms_for_pairs:
+            self.logger.debug(f"Computing {n * (2*t - 1)} new xi-terms") # for each instance, it is one \xi_i^tt for the new ensemble member and (t-1) \xi_i^st for each previous ensemble member
+            for i in range(n):
+                other_s = self.t - 1
+                if np.any(np.isnan(self.deviation_matrices[other_s][i])):
                     continue
-                xi = np.dot(self.deviation_matrices[s][i], self.deviation_matrices[other_s][i])
-                involved_members = set([s, other_s])
-                new_xi_terms.append((i, s, other_s, involved_members, xi))
-                if s != other_s:
-                    new_xi_terms.append((i, other_s, s, involved_members, xi))
+                for s in range(other_s + 1):
+                    if np.any(np.isnan(self.deviation_matrices[s][i])):
+                        continue
+                    xi = np.dot(self.deviation_matrices[s][i], self.deviation_matrices[other_s][i])
+                    involved_members = set([s, other_s])
+                    new_xi_terms.append((i, s, other_s, involved_members, xi))
+                    if s != other_s:
+                        new_xi_terms.append((i, other_s, s, involved_members, xi))
+        else:
+            self.logger.debug(f"Computing {n} new xi-terms") # for each instance, it is one \xi_i^tt for the new ensemble member and (t-1) \xi_i^st for each previous ensemble member
+            s = self.t - 1
+            for i in range(n):
+                xi = np.dot(self.deviation_matrices[s][i], self.deviation_matrices[s][i])
+                new_xi_terms.append((i, s, s, set([s, s]), xi))
+
         df_new_xi_terms = pd.DataFrame(new_xi_terms, columns=["i", "s1", "s2", "involved_members", "xi"])
         df_new_xi_terms["same_member"] = df_new_xi_terms["s1"] == df_new_xi_terms["s2"]
         df_new_xi_terms["diff_member"] = ~df_new_xi_terms["same_member"]
@@ -504,6 +525,10 @@ class DynamicCovUpdater:
     @property
     def is_active(self):
         return self.get_highest_order_of_member_combinations_required() > 0
+    
+    @property
+    def will_use_xi_terms_for_pairs(self):
+        return self.get_highest_order_of_member_combinations_required() > 1
     
     def get_number_of_xi_pairs_for_current_round(self):
         

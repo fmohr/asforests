@@ -1,6 +1,6 @@
 import numpy as np
 
-from time import time
+#from time import time
 
 import logging
 
@@ -11,16 +11,16 @@ from tqdm import tqdm
 
 from experiments.problem_instance.problem_instance import ProblemInstance
 from experiments.benchmark.result_storage import ResultStorage
-from experiments.benchmark.approaches.a_fromdatabase import DatabaseWiseApproach # used to compute ground truths as this is much more efficient than the naive way
 
+from time import time
 
 class Benchmark:
 
     def __init__(self,
                  problem_instance: ProblemInstance,
+                 captured_parameter,
                  ensemble_sequence_seed=0,
                  ensemble_prefix=None,
-                 captured_parameters=["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"],
                  estimate_checkpoints=None,
                  precision=7,
                  upper_bound_for_sample_size_in_ground_truth_computation=10**8,
@@ -36,7 +36,7 @@ class Benchmark:
         self.hooks = hooks
         
         self.logger = logging.getLogger("benchmark")
-        self.captured_parameters = captured_parameters
+        self.captured_parameter = captured_parameter
         self.upper_bound_for_sample_size_in_ground_truth_computation = upper_bound_for_sample_size_in_ground_truth_computation
         self._estimate_checkpoints = estimate_checkpoints
         self._precision = precision
@@ -44,7 +44,7 @@ class Benchmark:
 
         # state variables
         self._approaches = None
-        self._t = None
+        self._budget = None
         self._result_storage = None
         self.process = psutil.Process(os.getpid()) # get process for memory surveillance
 
@@ -58,7 +58,7 @@ class Benchmark:
     
     @property
     def t(self):
-        return self._t
+        return self._budget
 
     @property
     def result_storage(self):
@@ -86,17 +86,14 @@ class Benchmark:
             "V[Z_nt]": "vars_iid",
             "V[Z_nt|D_val]": "vars_cond"
         }
-        self._true_parameters = {
-            p: getattr(pi, _true_parameter_routines[p])
-            for p in self.captured_parameters
-        }
-        self.logger.info(f"Ground truth parameter values are: %s", ("".join([f"\n\t{k}: {np.round(v, 4).tolist()}" for k, v in self._true_parameters.items()])))
+        self._true_parameter = getattr(pi, _true_parameter_routines[self.captured_parameter])
+        self.logger.info(f"Ground truth parameter value is: %s", self._true_parameter)
 
         # reset storage
-        self._t = 0
+        self._budget = 0
         self._history_of_member_ids = []
         self._result_storage = ResultStorage(
-            true_param_values=self._true_parameters,
+            true_param_values={self.captured_parameter: self._true_parameter},
             n_checkpoints=self.problem_instance.n_checkpoints,
             t_checkpoints=self.problem_instance.t_checkpoints
             )
@@ -106,67 +103,68 @@ class Benchmark:
         if self._approaches is None:
             raise ValueError("No approaches registered. Use `reset` to define the approaches.")
 
-        self.logger.info(f"Starting round {self._t + 1}.")
+        self.logger.info(f"Starting round {self._budget + 1}.")
 
         # update knowledge of all approaches
-        member_id = next(self.ensemble_member_id_generator) if (self._ensemble_prefix is None or self._t >= len(self._ensemble_prefix)) else self._ensemble_prefix[self._t]
+        member_id = next(self.ensemble_member_id_generator) if (self._ensemble_prefix is None or self._budget >= len(self._ensemble_prefix)) else self._ensemble_prefix[self._budget]
         self._history_of_member_ids.append(member_id)
         matrix = self.problem_instance.predictions_val[member_id]
-        self._t += 1
+        self._budget += 1
         if self.track_used_resources:
             self.logger.debug(
                 f"Current memory consumption is {self.process.memory_info().rss / (1024 ** 2):.2f}MB. "
                 f"Current CPU usage is {self.process.cpu_percent(interval=1.0)}."
             )
-        
         if np.any(np.isnan(matrix)):
-            raise ValueError(f"Prediction matrix in round {self._t} has nan entries.")
-
-        do_update_estimates = self._estimate_checkpoints is None or self._t in self._estimate_checkpoints
-
+            raise ValueError(f"Prediction matrix in round {self._budget} has nan entries.")
+        
         for approach_name, approach_obj in self._approaches.items():
             self.logger.debug(f"Stepping {approach_name}.")
-            keys_and_methods_available = {
-                "add": (lambda: approach_obj.receive_predictions_of_new_ensemble_member(matrix), False),
-                #"update_iid": (approach_obj._update_estimates_for_iid, False),
-                #"update_cond": (approach_obj._update_estimates_for_conditional, False),
-                "E[Z_nt|D_val]": (approach_obj.estimate_performance_mean_in_conditional_setup, True),
-                "V[Z_nt|D_val]": (approach_obj.estimate_performance_var_in_conditional_setup, True),
-                "E[Z_nt]": (approach_obj.estimate_performance_mean_in_iid_setup, True),
-                "V[Z_nt]": (approach_obj.estimate_performance_var_in_iid_setup, True)
-            }
 
-            enabled_keys = ["add"] + [p for p in ["E[Z_nt|D_val]", "E[Z_nt]", "V[Z_nt|D_val]", "V[Z_nt]"] if p in approach_obj.estimated_parameters and p in self.captured_parameters]
-            keys_and_methods_applied = {k: keys_and_methods_available[k] for k in enabled_keys}
-            t_start_approach = time()
+            # tell the approach about the new matrix
+            approach_obj.receive_predictions_of_new_ensemble_member(matrix)
+            
+            p = self.captured_parameter
 
-            if do_update_estimates:
-                self.logger.debug(f"Requesting estimates for {list(keys_and_methods_applied.keys())} from {approach_name}")
-                estimates = {}
-            for p, (m, has_estimate) in keys_and_methods_applied.items():
-                t0 = time()
-                if has_estimate and do_update_estimates:
-                    #self.logger.debug(f"Requesting estimates for {p} from {approach_name}")
-                    if p == "V[Z_nt]":
-                        e = m(self.problem_instance.n_checkpoints, self.problem_instance.t_checkpoints)
-                        assert (len(self.problem_instance.n_checkpoints), len(self.problem_instance.t_checkpoints)) == e.shape, f"Wrong shape returned by approach {approach_name} for V[Z_nt]. Should be {(len(self.problem_instance.n_checkpoints), len(self.problem_instance.t_checkpoints))} but was {e.shape}"
-                    else:
-                        e = m(self.problem_instance.t_checkpoints)
-                        assert (len(self.problem_instance.t_checkpoints), ) == e.shape, f"Wrong shape returned by approach {approach_name} for {p}. Should be {(len(self.problem_instance.t_checkpoints), )} but was {e.shape}"
-                    #self.logger.debug(f"{approach_name} estimates {e} for {p}")
-                elif not has_estimate:
-                    e = m()
-                t1 = time()
-                if has_estimate and do_update_estimates:
-                    assert isinstance(e, np.ndarray), f"Returned estimates must be a numpy array, but {approach_name} returned {type(e)} for {p}"
-                    estimates[p] = e
-                    for j, t in enumerate(self.problem_instance.t_checkpoints):    
-                        if p == "V[Z_nt]":
-                            for i, n in enumerate(self.problem_instance.n_checkpoints):
-                                self._result_storage.add_result(approach=approach_name, param=p, budget=self._t, n=n, t=t, estimate=np.round(e[i, j], self._precision), runtime=np.round(t1 - t0, self._precision))
-                        else:
-                            self._result_storage.add_result(approach=approach_name, param=p, budget=self._t, n=None, t=t, estimate=np.round(e[j], self._precision), runtime=np.round(t1 - t0, self._precision))
-            self.logger.debug(f"Estimates delivered by approach {approach_name}: {estimates} after {np.round(time() - t_start_approach, 2)}s")
-        self.logger.info(f"Finished round {self._t}.")
+            # ask about the updated opinion on the relevant parameters
+            for t in self.problem_instance.t_checkpoints:
+                if p == "V[Z_nt]":
+                    for n in self.problem_instance.n_checkpoints:
+                        t_0 = time()
+                        e = approach_obj.estimate_performance_var_in_iid_setup(t=t, n=n)
+                        runtime = time() - t_0
+                    
+                        # add result to storage
+                        self._result_storage.add_result(
+                            approach=approach_name,
+                            budget=self._budget,
+                            param=self.captured_parameter,
+                            n=n,
+                            t=t,
+                            estimate=e[0],
+                            runtime=runtime
+                        )
+                else:
+                    t_0 = time()
+                    if self.captured_parameter == "E[Z_nt]":
+                        e = approach_obj.estimate_performance_mean_in_iid_setup(t=t)
+                    elif self.captured_parameter == "E[Z_nt|D_val]":
+                        e = approach_obj.estimate_performance_mean_in_conditional_setup(t=t)
+                    elif self.captured_parameter == "V[Z_nt|D_val]":
+                        e = approach_obj.estimate_performance_var_in_conditional_setup(t=t)
+                    runtime = time() - t_0
+                    
+                    # add result to storage
+                    self._result_storage.add_result(
+                        approach=approach_name,
+                        budget=self._budget,
+                        param=self.captured_parameter,
+                        n=None,
+                        t=t,
+                        estimate=e[0],
+                        runtime=runtime
+                    )
+
+        self.logger.info(f"Finished round {self._budget}.")
         for hook in self.hooks:
             hook(self._approaches, self._result_storage)

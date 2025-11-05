@@ -4,21 +4,18 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
 
-import json
+import json, jsonlines
 import pandas as pd
 import numpy as np
 import openml
-import io
 import json
-import gzip
+import pathlib
 
 import logging
 from time import time
 
 from experiments.benchmark._util import get_unique_prediction_matrices
 from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
-
-import requests
 
 
 class ProblemInstance:
@@ -77,41 +74,15 @@ class ProblemInstance:
             assert len(self._predictions.shape) == 3, f"Predictions should have dimensionality 3 but has dimensionality {len(self._predictions.shape)}"
     
     @classmethod
-    def load_from_pcloud(cls, openmlid, data_seed, num_possible_ensemble_members, validation_instances):
+    def load_from_instance_file(cls, openmlid, data_seed, num_possible_ensemble_members, validation_instances):
 
-        repo_code = "kZqhM95Zq7nKwKu0ot7EgH3hBnSWHkwumeYX"
-
-        # get overview dictionary to enable browsing
-        url_to_problem_instance_folder = f"https://api.pcloud.com/showpublink?code={repo_code}"
-        content = requests.get(url_to_problem_instance_folder).json()
-
-        # identify folder where the result file is located
-        matching_folders = [v for v in content["metadata"]["contents"] if v["name"] == str(openmlid)]
-        if len(matching_folders) == 0:
-            raise ValueError(f"Did not find a folder with name {openmlid}")
-        if len(matching_folders) > 1:
-            raise ValueError(f"Found multiple folders with name {openmlid}")
-        folder = matching_folders[0]
+        folder = pathlib.Path(__file__).parent
+        instance_file = f"{folder}/instances.jsonl"
         
-        # identify exact result file id
-        filename = f"{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances}.json.gz"
-        matching_files = [file_item for file_item in folder["contents"] if file_item["name"] == filename]
-        if len(matching_files) == 0:
-            raise ValueError(f"Did not find a file with name {filename} in the {openmlid} folder")
-        if len(matching_files) > 1:
-            raise ValueError(f"Found multiple files with name {filename}")
-        file_id = matching_files[0]["fileid"]
-
-        # download problem instance file
-        download_link_info = requests.get(f"https://api.pcloud.com/getpublinkdownload?code={repo_code}&fileid={file_id}").json()
-        download_link = "https://" + download_link_info["hosts"][0] + download_link_info["path"]
-        response = requests.get(download_link)
-        if response.status_code == 200:
-            filehandle = io.BytesIO(response.content) # read in file
-            with gzip.open(filehandle, 'rt', encoding='utf-8') as f:
-                return json.load(f)
-        else:
-            raise ValueError(f"Could not get problem instance from pCloud. Encountered error when attempting to download:\n{response}")
+        with jsonlines.open(instance_file, "r") as reader:
+            for row in reader:
+                if row["data_description"] == openmlid and row["data_seed"] == data_seed and row["num_possible_ensemble_members"] == num_possible_ensemble_members and row["validation_size"] == validation_instances:
+                    return ProblemInstance.from_dict(row)
 
     @property
     def X(self):
@@ -501,7 +472,3 @@ class ProblemInstance:
     
     def copy(self):
         return ProblemInstance.from_dict(json.loads(json.dumps(self.to_dict())))
-    
-
-if __name__ == "__main__":
-    ProblemInstance.load_from_pcloud(openmlid=3, data_seed=0, num_possible_ensemble_members=256, validation_instances=256)
