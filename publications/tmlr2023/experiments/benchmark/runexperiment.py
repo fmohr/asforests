@@ -201,7 +201,7 @@ if __name__ == "__main__":
         }, None, None)
         exit(0)
 
-    sleep_time = np.random.rand() * 60
+    sleep_time = np.random.rand() * 120
     print(f"Sleeping {sleep_time}s")
     time.sleep(sleep_time)
 
