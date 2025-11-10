@@ -125,6 +125,10 @@ class DatabaseWiseApproach(DeviationBasedApproach):
 
     def receive_deviations_of_new_ensemble_member(self, deviation_matrix):
 
+        if self.epa is not None and not self.epa.active:
+            self.logger.debug(f"Ignoring new deviation matrix since the estimator is saturated and hence inactive.")
+            return
+
         self.logger.info("Receiving new deviation matrix.")
 
         if self.num_validation_instances is None:
@@ -136,7 +140,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
                 deviation_row = deviation_matrix[idx].reshape(1, deviation_matrix.shape[1]).copy()
                 deviation_matrix[:] = np.nan
                 deviation_matrix[idx] = deviation_row
-            self.logger.debug(f"Adding {self.epa.t}-th deviation matrix to Ensemble Performance Estimator")
+            self.logger.debug(f"Adding {self.epa.t + 1}-th deviation matrix to Ensemble Performance Estimator")
             self.epa.add_deviation_matrix(deviation_matrix)
 
         else:

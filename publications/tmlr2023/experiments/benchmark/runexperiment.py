@@ -133,7 +133,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
         t_checkpoints = pi.t_checkpoints
         n_checkpoints = pi.n_checkpoints if captured_parameter == "V[Z_nt]" else [None]
 
-        folder_for_task = f"{folder}/{captured_parameter}/{openmlid}"
+        folder_for_task = f"{folder}/{openmlid}/{captured_parameter}"
         pathlib.Path(folder_for_task).mkdir(exist_ok=True, parents=True)
 
         for n, t in it.product(n_checkpoints, t_checkpoints):
@@ -195,9 +195,9 @@ if __name__ == "__main__":
             "openmlid": 1049,
             "num_possible_ensemble_members": 64,
             "validation_instances": 64,
-            "data_seed": 1,
+            "data_seed": 0,
             "ensemble_sequence_seed": 1,
-            "method": 'bootstrapping-10-10' #"bootstrapping-100-100"
+            "method": "bootstrapping-10-10"
         }, None, None)
         exit(0)
 

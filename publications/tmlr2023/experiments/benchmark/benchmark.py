@@ -122,7 +122,9 @@ class Benchmark:
             self.logger.debug(f"Stepping {approach_name}.")
 
             # tell the approach about the new matrix
+            t_0 = time()
             approach_obj.receive_predictions_of_new_ensemble_member(matrix)
+            runtime_add = time() - t_0
             
             p = self.captured_parameter
 
@@ -132,7 +134,7 @@ class Benchmark:
                     for n in self.problem_instance.n_checkpoints:
                         t_0 = time()
                         e = approach_obj.estimate_performance_var_in_iid_setup(t=t, n=n)
-                        runtime = time() - t_0
+                        runtime_predict = time() - t_0
                     
                         # add result to storage
                         self._result_storage.add_result(
@@ -142,7 +144,7 @@ class Benchmark:
                             n=n,
                             t=t,
                             estimate=e[0],
-                            runtime=runtime
+                            runtime=runtime_add + runtime_predict
                         )
                 else:
                     t_0 = time()
@@ -152,7 +154,7 @@ class Benchmark:
                         e = approach_obj.estimate_performance_mean_in_conditional_setup(t=t)
                     elif self.captured_parameter == "V[Z_nt|D_val]":
                         e = approach_obj.estimate_performance_var_in_conditional_setup(t=t)
-                    runtime = time() - t_0
+                    runtime_predict = time() - t_0
                     
                     # add result to storage
                     self._result_storage.add_result(
@@ -162,7 +164,7 @@ class Benchmark:
                         n=None,
                         t=t,
                         estimate=e[0],
-                        runtime=runtime
+                        runtime=runtime_add + runtime_predict
                     )
 
         self.logger.info(f"Finished round {self._budget}.")

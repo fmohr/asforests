@@ -158,6 +158,10 @@ class EnsemblePerformanceAssessor:
             raise ValueError(f"population_mode must be in {accepted_modes} but is {population_mode}")
 
         # state variables
+        self._basic_moment_builder_active = self.estimate_deviation_mean or self.estimate_deviation_var
+        self._cov_moment_builder_active = self.estimate_deviation_covs
+        self._var_estimator_active = self.estimate_performance_var_for_conditional_case or self.estimate_performance_var_for_iid_case
+        self._active = self._basic_moment_builder_active or self._cov_moment_builder_active or self._var_estimator_active
         self.deviation_matrices = []
         self.masks_for_valid_instances = []
         self.n = None
@@ -176,6 +180,10 @@ class EnsemblePerformanceAssessor:
     @property
     def t(self):
         return len(self.deviation_matrices)
+    
+    @property
+    def active(self):
+        return self._active
 
     @property
     def gap_mean_point(self):
@@ -228,6 +236,11 @@ class EnsemblePerformanceAssessor:
         :param d: an n x k matrix (np array) where n is the number of validation instances and k the number of targets
         :return: None
         """
+
+        if not self.active:
+            self.logger.debug(f"Assessor is inactive, ignoring invocation to add_deviation_matrix")
+            return
+
         start = time.time()
         self.logger.info(
             f"Adding deviation matrix of shape {d.shape} to Ensemble Performance Estimator. "
@@ -253,21 +266,24 @@ class EnsemblePerformanceAssessor:
                 self.mixed_moment_builder = MixedMomentBuilder()
 
             # update estimates of E[D^1] and V[D^1]
-            if self.estimate_deviation_mean or self.estimate_deviation_var:
-                self.logger.info(f"Updating estimates of E[D^1] and V[D^1]")
+            if self._basic_moment_builder_active:
+                self.logger.info("Updating estimates of E[D^1] and V[D^1]")
                 allowed_observations = np.max(self.threshold_for_number_of_samples_to_exclude_param) if self.moment_builder.n is None else max([0, min(np.max(self.threshold_for_number_of_samples_to_exclude_param) - self.moment_builder.n)])
                 if allowed_observations > 0:
                     self.moment_builder.add_batch(d[:allowed_observations])
+                    if np.all(self.moment_builder.n >= self.threshold_for_number_of_samples_to_exclude_param):
+                        self.logger.info(f"Used {self.moment_builder.n} instances for all targets, now disabling moment builder.")
+                        self._basic_moment_builder_active = False
                     if self.enable_asserts:
                         if self.execute_asserts and allowed_observations >= len(d):
                             assert np.all(np.isclose(self.moment_builder.means_, np.mean(self.deviation_matrices, axis=(0, 1))))
                             if self.t > 1:
                                 assert np.all(np.isclose(self.moment_builder.central_moments[1], np.var(self.deviation_matrices, axis=(0, 1))))
             else:
-                self.logger.debug(f"Skipping update of estimates of E[D^1] and V[D^1] since this is not configured")
+                self.logger.debug("Skipping update of estimates of E[D^1] and V[D^1] since these estimates are disabled or inactive due to saturation.")
 
             # update estimate of Cov[D^1, D^2]
-            if self.estimate_deviation_covs and np.any(self.threshold_for_number_of_samples_to_exclude_param > self.mixed_moment_builder.n):
+            if self._cov_moment_builder_active:
                 mask_for_valid_instances_s1 = self.masks_for_valid_instances[-1]
                 
                 for i, (d_s2, mask_for_valid_instances_s2) in enumerate(zip(self.deviation_matrices, self.masks_for_valid_instances)): # include the new one as well for this
@@ -286,13 +302,33 @@ class EnsemblePerformanceAssessor:
                     self.mixed_moment_builder.add_observations(m1, m2, axis=0)
                     if i < len(self.deviation_matrices) - 1:
                         self.mixed_moment_builder.add_observations(m2, m1, axis=0)
+                
+                # check whether to disabled this update from now on
+                if np.any(self.threshold_for_number_of_samples_to_exclude_param > self.mixed_moment_builder.n):
+                    self.logger.info(
+                        f"Considered {self.threshold_for_number_of_samples_to_exclude_param} samples for the cov-estimator of deviations. "
+                        "Now disabling the mixed_moment_builder that estimates the deviation covariances."
+                    )
+                    self._cov_moment_builder_active = False
             
             # estimate V[Z_nt]
-            if self.estimate_performance_var_for_iid_case or self.estimate_performance_var_for_conditional_case:
+            if self._var_estimator_active:
                 self.update_estimates_of_covs_of_xi_terms_based_on_last_added_deviation_matrix()
+                if (
+                    (self.cov_updater_for_conditional_case is None or not self.cov_updater_for_conditional_case.is_active) and
+                    (self.cov_updater_for_iid_case_arbitrary_instances is None or not self.cov_updater_for_iid_case_arbitrary_instances.is_active) and
+                    (self.cov_updater_for_iid_case_equal_instances is None or not self.cov_updater_for_iid_case_equal_instances.is_active) 
+                ):
+                    self._var_estimator_active = False
+                    self.logger.info("All cov-updaters for variance estimation are saturated and now inactive. Disabling update of variance estimation.")
             else:
-                self.logger.info(f"Not updating estimate of covariance terms for variance estimation since this is not configured.")
-                
+                self.logger.debug("Not updating estimate of covariance terms for variance estimation since this is not configured or inactive due to saturation.")
+            
+            # check whether we should disable the whole estimation unit
+            if not self._basic_moment_builder_active and not self._cov_moment_builder_active and not self._var_estimator_active:
+                self.logger.info("Deactivating the whole estimator since no more estimation components are active.")
+                self._active = False
+        
         # update estimates by resampling
         else:
 
