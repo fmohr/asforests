@@ -37,21 +37,22 @@ class DatabaseWiseApproach(DeviationBasedApproach):
     
     def reset(self):
         super().reset()
-        self.epa = EnsemblePerformanceAssessor(
-            threshold_for_number_of_samples_to_exclude_param=self.threshold_for_number_of_samples_to_exclude_param,
-            population_mode=self.population_mode,
-            execute_asserts=False,
-            estimate_deviation_mean=self.estimating_iid_mean,
-            estimate_deviation_var=self.estimating_iid_mean,
-            estimate_deviation_covs=self.estimating_iid_mean,
-            estimate_performance_var_for_iid_case=self.estimating_iid_variance,
-            estimate_performance_var_for_conditional_case=self.estimating_conditional_variance,
-            max_number_of_recent_members_to_combine_with=self.max_number_of_recent_members_to_combine_with,
-            random_state=self.random_state,
-            callbacks=self.callbacks,
-            logger=logging.getLogger(f"{self.logger.name}.epa")
-        )
-        if not self.create_estimates_for_iid_scenario:  # maybe we only need this
+        if any(p in self.estimated_parameters for p in ["E[Z_nt]", "V[Z_nt]", "V[Z_nt|D_val]"]):
+            self.epa = EnsemblePerformanceAssessor(
+                threshold_for_number_of_samples_to_exclude_param=self.threshold_for_number_of_samples_to_exclude_param,
+                population_mode=self.population_mode,
+                execute_asserts=False,
+                estimate_deviation_mean=self.estimating_iid_mean,
+                estimate_deviation_var=self.estimating_iid_mean,
+                estimate_deviation_covs=self.estimating_iid_mean,
+                estimate_performance_var_for_iid_case=self.estimating_iid_variance,
+                estimate_performance_var_for_conditional_case=self.estimating_conditional_variance,
+                max_number_of_recent_members_to_combine_with=self.max_number_of_recent_members_to_combine_with,
+                random_state=self.random_state,
+                callbacks=self.callbacks,
+                logger=logging.getLogger(f"{self.logger.name}.epa")
+            )
+        else:
             self.deviation_matrices = []
     
     @property
@@ -78,7 +79,6 @@ class DatabaseWiseApproach(DeviationBasedApproach):
     def deviation_means_in_conditional_setting(self):
         matrices = self.epa.deviation_matrices if self.epa is not None else self.deviation_matrices
         return np.mean(matrices, axis=0)
-        
 
     @property
     def deviation_vars_in_conditional_setting(self):
@@ -107,7 +107,7 @@ class DatabaseWiseApproach(DeviationBasedApproach):
     def xi_covs_in_conditional_setting(self):
         if "V[Z_nt|D_val]" not in self.estimated_parameters:
             raise ValueError(f"Approach not configured to estimate iid parameters.")
-        if not self.epa.estimate_performance_var_for_conditional_case and not self.epa.estimate_performance_var_for_iid_case:
+        if self.epa is None or (not self.epa.estimate_performance_var_for_conditional_case):
             raise ValueError(f"EnsemblePerformance estimator is not configured to estimate variances!")
         f = np.vectorize(lambda obj: obj.cov)  # make estimate biased
         covs = f(self.epa.cov_updater_for_conditional_case)
@@ -125,9 +125,14 @@ class DatabaseWiseApproach(DeviationBasedApproach):
 
     def receive_deviations_of_new_ensemble_member(self, deviation_matrix):
 
-        if self.epa is not None and not self.epa.active:
-            self.logger.debug(f"Ignoring new deviation matrix since the estimator is saturated and hence inactive.")
-            return
+        if self.epa is not None:
+            if not self.epa.active:
+                self.logger.debug(f"Ignoring new deviation matrix since the estimator is saturated and hence inactive.")
+                return
+        else:
+            if len(self.deviation_matrices) >= self.threshold_for_number_of_samples_to_exclude_param:
+                self.logger.debug(f"Ignoring new deviation matrix since the estimator is saturated and hence inactive.")
+                return
 
         self.logger.info("Receiving new deviation matrix.")
 
