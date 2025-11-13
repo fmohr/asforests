@@ -304,7 +304,7 @@ class EnsemblePerformanceAssessor:
                         self.mixed_moment_builder.add_observations(m2, m1, axis=0)
                 
                 # check whether to disabled this update from now on
-                if np.any(self.threshold_for_number_of_samples_to_exclude_param > self.mixed_moment_builder.n):
+                if np.any(self.threshold_for_number_of_samples_to_exclude_param <= self.mixed_moment_builder.n):
                     self.logger.info(
                         f"Considered {self.threshold_for_number_of_samples_to_exclude_param} samples for the cov-estimator of deviations. "
                         "Now disabling the mixed_moment_builder that estimates the deviation covariances."
