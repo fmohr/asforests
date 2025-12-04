@@ -20,7 +20,7 @@ PY_EXPERIMENTER:
         num_possible_ensemble_members:
           type: INT
           #values: [1, 8, 64, 256]
-          values: [64, 256]
+          values: [64] #, 256]
         
         ensemble_sequence_seed:
           type: INT
@@ -30,12 +30,12 @@ PY_EXPERIMENTER:
           type: INT
           values:
             start: 0
-            stop: 10
+            stop: 3 # 10
             step: 1
         
         validation_instances:
           type: INT
           #values: [2, 8, 64, 256]
-          values: [64, 256]
+          values: [64] #, 256]
 
       result_timestamps: False

@@ -66,7 +66,7 @@ class TestGroundTruthComputer(TestCase):
 
         # approximate ground truth
         t_start = time()
-        approx_mean, approx_var = gt.approximate_true_parameters_in_iid_setting_by_sampling(t_checkpoints=t, n_checkpoints=n, num_samples=5*10**5, num_samples_per_job=2*10**5, n_jobs=1)
+        approx_mean, approx_var = gt.approximate_true_parameters_in_iid_setting_by_sampling(t_checkpoints=t, n_checkpoints=n, num_samples=10**8, num_samples_per_job=2*10**5, n_jobs=1)
         t_end = time()
         print(f"finished after {t_end - t_start}s")
         approx_mean = approx_mean[0, 0]
@@ -75,8 +75,8 @@ class TestGroundTruthComputer(TestCase):
         approx_std = np.sqrt(approx_var)
         print(f"True std is {true_std}")
         print(f"Approximated mean is {approx_mean} and approximated std is {approx_std}")
-        self.assertAlmostEqual(true_mean, approx_mean, places=3, msg=f"E[Z_nt] not correctly approximated. True value is {true_mean}, approximated value is {approx_mean}")
-        self.assertAlmostEqual(true_std, approx_std, places=3, msg=f"sqrt(V[Z_nt]) not correctly approximated. True value is {true_std}, approximated value is {approx_std}")
+        self.assertAlmostEqual(true_mean, approx_mean, places=4, msg=f"E[Z_nt] not correctly approximated. True value is {true_mean}, approximated value is {approx_mean}")
+        self.assertAlmostEqual(true_std, approx_std, places=4, msg=f"sqrt(V[Z_nt]) not correctly approximated. True value is {true_std}, approximated value is {approx_std}")
 
     @parameterized.expand(range(10))
     def test_approximation_correctness_for_cond(self, seed):
@@ -106,7 +106,7 @@ class TestGroundTruthComputer(TestCase):
 
         # approximate ground truth
         t_start = time()
-        approx_mean, approx_var = gt.approximate_true_parameters_in_cond_setting_by_sampling(t_checkpoints=t, num_samples=5*10**5, num_samples_per_job=2*10**5, n_jobs=1)
+        approx_mean, approx_var = gt.approximate_true_parameters_in_cond_setting_by_sampling(t_checkpoints=t, num_samples=10**8, num_samples_per_job=2*10**5, n_jobs=1)
         t_end = time()
         print(f"finished after {t_end - t_start}s")
         approx_mean = approx_mean[0]
@@ -115,5 +115,5 @@ class TestGroundTruthComputer(TestCase):
         approx_std = np.sqrt(approx_var)
         print(f"True std is {true_std}")
         print(f"Approximated mean is {approx_mean} and approximated std is {approx_std}")
-        self.assertAlmostEqual(true_mean, approx_mean, places=3, msg=f"E[Z_nt|D_val] not correctly approximated. True value is {true_mean}, approximated value is {approx_mean}")
-        self.assertAlmostEqual(true_std, approx_std, places=3, msg=f"sqrt(V[Z_nt|D_val]) not correctly approximated. True value is {true_std}, approximated value is {approx_std}")
+        self.assertAlmostEqual(true_mean, approx_mean, places=4, msg=f"E[Z_nt|D_val] not correctly approximated. True value is {true_mean}, approximated value is {approx_mean}")
+        self.assertAlmostEqual(true_std, approx_std, places=4, msg=f"sqrt(V[Z_nt|D_val]) not correctly approximated. True value is {true_std}, approximated value is {approx_std}")

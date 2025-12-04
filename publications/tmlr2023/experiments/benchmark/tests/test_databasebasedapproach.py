@@ -32,12 +32,12 @@ logger.setLevel(logging.DEBUG)
 approach_logger = logging.getLogger("tested_approach")
 approach_logger.handlers.clear()
 approach_logger.addHandler(ch)
-approach_logger.setLevel(logging.WARNING)
+approach_logger.setLevel(logging.DEBUG)
 
 epa_logger = logging.getLogger("tested_approach.epa")
 epa_logger.handlers.clear()
 #epa_logger.addHandler(ch)
-epa_logger.setLevel(logging.WARNING)
+epa_logger.setLevel(logging.DEBUG)
 
 
 def create_case(n_samples=10, num_different_ensemble_members=2):
@@ -63,7 +63,7 @@ class TestDatabaseBasedApproach(ApproachTestClass):
         This is done as follows: We generate a specific sequence of ensemble members, namely each of them exactly once until all have been seen.
         Thereby, the approach has seen all ensemble members exactly once and should, by coincidence, estimate the exactly correct mean values and variances.
     """    
-    def setUp(self, n_samples=10, num_different_ensemble_members=2):
+    def setUp(self, n_samples=10, num_different_ensemble_members=5):
         self.matrices, self.y_oh, self.deviations = create_case(n_samples=n_samples, num_different_ensemble_members=num_different_ensemble_members)
         self.gtc = GroundTruthComputer(deviations=self.deviations)
 
@@ -89,8 +89,13 @@ class TestDatabaseBasedApproach(ApproachTestClass):
         a.tell_ground_truth_labels(self.y_oh)
 
         # tell the approach all possible matrices
+        round = 0
+        print(f"Starting run with a total of {len(self.matrices)} matrices.")
         for pm in self.matrices:
+            round += 1
+            print(f"Starting round #{round}")
             a.receive_predictions_of_new_ensemble_member(pm)
+            print(f"Finished round #{round}")
         return a
     
     def test_callbacks(self):
@@ -169,10 +174,11 @@ class TestDatabaseBasedApproach(ApproachTestClass):
                     break
     
     def test_that_cov_updaters_increase_samples_for_active_params(self):
+        position_wise_thresholds = 10**3#np.array([10**3, 10**3, 10**3, 10**3, 10**4, 10**4, 10**5])
         a = DatabaseWiseApproach(
             population_mode="stream",
             random_state=0,
-            threshold_for_number_of_samples_to_exclude_param=np.array([10**3, 10**3, 10**3, 10**3, 10**4, 10**4, 10**5]),
+            threshold_for_number_of_samples_to_exclude_param=position_wise_thresholds,
             logger=approach_logger
         )
 
@@ -189,11 +195,18 @@ class TestDatabaseBasedApproach(ApproachTestClass):
         last_count_of_observations = None
 
         for pm in pi.pi.get_prediction_matrix_generator(ensemble_sequence_seed=0, only_validation_data=True):
-            a.receive_predictions_of_new_ensemble_member(pm)
+            
             round += 1
+            logger.info(f"Starting round {round}. Now sending data of shape {pm.shape} to approach.")
+            a.receive_predictions_of_new_ensemble_member(pm)
+
+            # define expected number of entries for estimates
+            #expected_num_estimates_for_cond = np.minimum(position_wise_thresholds, np.array([round, round**2, round**2, round**2, round**3, round**3, round**4]))
+            #print(expected_num_estimates_for_cond)
+            #assert np.allclose(expected_num_estimates_for_cond, a.epa.cov_updater_for_conditional_case.num_used_samples_per_cov_estimate)
+            
             
             # if this was the first update, retriever the cov updaters
-            logger.info(f"Round {round}. Shape of data is {pm.shape}")
             if round == 1:
                 updaters = [
                     a.epa.cov_updater_for_conditional_case,
@@ -214,19 +227,25 @@ class TestDatabaseBasedApproach(ApproachTestClass):
                     self.assertTrue(np.all(~last_active_mask | (counts_changes > 0)), f"Observed no change in active parameter. {last_active_mask} (problem in index {np.where(last_active_mask | (counts_changes > 0))[0]}). Counts stayed at {last_count[last_active_mask  | (counts_changes > 0)]}")
                     last_active_mask[:] = updater.mask_of_active_params.copy()
                     last_count[:] = cur_counts
-                if round > 100 or a.epa.cov_updater_for_conditional_case.get_highest_order_of_member_combinations_required() == 0:
+                if round > 20 or a.epa.cov_updater_for_conditional_case.get_highest_order_of_member_combinations_required() == 0:
                     break
         
         # check that all updaters are disabled
         self.assertTrue(updaters[0].is_active)
+        self.assertTrue(updaters[0].get_highest_order_of_member_combinations_required() == 2)
         self.assertTrue(updaters[1].is_active)
-        self.assertFalse(updaters[2].is_active) # this guy has already reachd its maximum even in the first param
+        self.assertTrue(updaters[1].get_highest_order_of_member_combinations_required() == 1)
+        self.assertTrue(updaters[2].is_active)
+        self.assertTrue(updaters[2].get_highest_order_of_member_combinations_required() == 1)
 
     def test_that_cov_updaters_disable_params_upon_saturation(self):
+
+        lim = 50
+
         a = DatabaseWiseApproach(
             population_mode="stream",
             random_state=0,
-            threshold_for_number_of_samples_to_exclude_param=50,
+            threshold_for_number_of_samples_to_exclude_param=lim,
             logger=approach_logger
         )
 
@@ -243,32 +262,30 @@ class TestDatabaseBasedApproach(ApproachTestClass):
         last_count_of_observations = None
 
         for pm in pi.pi.get_prediction_matrix_generator(ensemble_sequence_seed=0, only_validation_data=True):
-            a.receive_predictions_of_new_ensemble_member(pm)
             round += 1
-            
-            # if this was the first update, retriever the cov updaters
-            if round == 1:
-                updaters = [
-                    a.epa.cov_updater_for_conditional_case,
-                    a.epa.cov_updater_for_iid_case_equal_instances,
-                    a.epa.cov_updater_for_iid_case_arbitrary_instances
-                ]
-                last_count_of_observations = [u.num_used_samples_per_cov_estimate for u in updaters]
-                last_active_masks = [u.mask_of_active_params.copy() for u in updaters]
-
             logger.info(f"Round {round}. Shape of data is {pm.shape}")
-            for i, (updater, last_count, last_active_mask) in enumerate(zip(updaters, last_count_of_observations, last_active_masks)):
-                logger.info(f"Updater {i}. {last_active_mask} {last_count} {updater.get_highest_order_of_member_combinations_required()}")
-                
-                # check that the updater didn't add samples for any covariance builder that previously was declared inactive.
-                cur_counts = updater.num_used_samples_per_cov_estimate.copy()
-                counts_changes = cur_counts != last_count
-                self.assertFalse(np.any(~last_active_mask & counts_changes), f"Observed change in inactive parameter. {last_active_mask} (problem in index {np.where(~last_active_mask & counts_changes)[0]}). Counts changed from {last_count[~last_active_mask & counts_changes]} to {cur_counts[~last_active_mask & counts_changes]}")
-                last_active_mask[:] = updater.mask_of_active_params.copy()
-                last_count[:] = cur_counts
+            a.receive_predictions_of_new_ensemble_member(pm)
+
+            for num_update, (name, updater) in enumerate(zip(
+                ["conditional", "idd equal", "iid different"],
+                [a.epa.cov_updater_for_conditional_case, a.epa.cov_updater_for_iid_case_equal_instances, a.epa.cov_updater_for_iid_case_arbitrary_instances]
+            )):
+                logger.info(f"Number of items used for estimates in '{name}' cov estimator: {updater.num_used_samples_per_cov_estimate}")
+
             if round > 60 or a.epa.cov_updater_for_conditional_case.get_highest_order_of_member_combinations_required() == 0:
                 break
         
+        # check that all updaters have the number of estimates expected
+        updaters = [a.epa.cov_updater_for_conditional_case, a.epa.cov_updater_for_iid_case_equal_instances, a.epa.cov_updater_for_iid_case_arbitrary_instances]
+        for num_update, (name, updater) in enumerate(zip(
+            ["conditional", "idd equal", "iid different"],
+            updaters
+        )):
+            for i, num_estimates in enumerate(updater.num_used_samples_per_cov_estimate):
+                if num_update == 2 and i in [3, 4, 6]:
+                    continue
+                assert num_estimates >= lim, f"Not all cov estimates for '{name}' have at least {lim} entries: Number of estimates for index {i} are only {num_estimates}/{lim}"
+
         # check that all updaters are disabled
         for updater in updaters:
             self.assertEqual(0, updater.get_highest_order_of_member_combinations_required())

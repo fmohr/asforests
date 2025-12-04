@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 import json
 
@@ -50,7 +51,8 @@ class TestBenchmark(TestCase):
         # create 
         b = Benchmark(
             problem_instance=pi,
-            ensemble_sequence_seed=0
+            ensemble_sequence_seed=0,
+            captured_parameter="E[Z_nt]"
         )
 
         # run benchmark twice for 10 iterations (10 ensemble members)
@@ -62,191 +64,211 @@ class TestBenchmark(TestCase):
                 json.dump(pi.to_dict(), f)
     
     
-    def test_ability_to_create_necessary_number_of_distinct_ensemble_members(self):
+    def test_that_benchmark_has_true_parameter_values_from_problem_instance(self):
         
         # get problem instance
         w = ProblemInstanceWrapperForTesting(ensemble_seed=0)
         pi = w.pi
 
         # check whether benchmark can be reset and whether we can extract ground truth values
-        b = Benchmark(problem_instance=pi)
-        b.reset({})
-        assert np.array_equal(pi.means_iid, b._true_parameters["E[Z_nt]"])
-        assert np.array_equal(pi.means_cond, b._true_parameters["E[Z_nt|D_val]"])
-        assert np.array_equal(pi.vars_iid, b._true_parameters["V[Z_nt]"])
-        assert np.array_equal(pi.vars_cond, b._true_parameters["V[Z_nt|D_val]"])
+        for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
+            b = Benchmark(problem_instance=pi, captured_parameter=captured_parameter)
+            b.reset({})
+            if captured_parameter == "E[Z_nt]":
+                assert np.array_equal(pi.means_iid, b._true_parameter)
+            if captured_parameter == "E[Z_nt|D_val]":
+                assert np.array_equal(pi.means_cond, b._true_parameter)
+            if captured_parameter == "V[Z_nt]":
+                assert np.array_equal(pi.vars_iid, b._true_parameter)
+            if captured_parameter == "V[Z_nt|D_val]":
+                assert np.array_equal(pi.vars_cond, b._true_parameter)
 
     def test_result_extraction(self):
 
-        # get benchmark
-        w = ProblemInstanceWrapperForTesting(ensemble_seed=0)
-        pi = w.pi
-        b = Benchmark(problem_instance=pi)
+        for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
 
-        # run benchmark twice for 10 iterations (10 ensemble members)
-        approaches = {
-            "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1),
-            "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100)
-        }
-        b.reset(approaches)
-        num_steps = 10**1
-        for _ in tqdm(range(num_steps)):
-            b.step()
-        
-        # extract results
-        for a_name in approaches.keys():
-            for n in pi.n_checkpoints:
-                for t in pi.t_checkpoints:
-                    df = b.result_storage.get_results_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
-                    self.assertEqual(num_steps * len(b.captured_parameters), len(df))
+            # get benchmark
+            w = ProblemInstanceWrapperForTesting(ensemble_seed=0)
+            pi = w.pi
+            b = Benchmark(problem_instance=pi, captured_parameter=captured_parameter)
 
-                    df = b.result_storage.get_errors_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
-                    self.assertEqual(num_steps * len(b.captured_parameters), len(df))
+            # run benchmark twice for 10 iterations (10 ensemble members)
+            approaches = {
+                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1, estimated_parameters=captured_parameter),
+                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100, estimated_parameters=captured_parameter)
+            }
+            b.reset(approaches)
+            num_steps = 10**1
+            for _ in tqdm(range(num_steps)):
+                b.step()
+            
+            # extract results
+            for a_name in approaches.keys():
+                for n in pi.n_checkpoints:
+                    for t in pi.t_checkpoints:
+                        df = b.result_storage.get_results_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
+                        self.assertEqual(num_steps, len(df))
+
+                        df = b.result_storage.get_errors_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
+                        self.assertEqual(num_steps, len(df))
 
     def test_reproducibility(self):
         
-        b = get_standard_benchmark()
+        for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
+            b = get_standard_benchmark(captured_parameter=captured_parameter)
 
-        # get generator for the estimates of the approach on the given problem
-        n_checkpoints=[2]
-        t_checkpoints = [10, 100, 1000]
-        approaches = {
-            "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1),
-            "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100)
-        }
+            # get generator for the estimates of the approach on the given problem
+            approaches = {
+                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1),
+                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100)
+            }
 
-        # run benchmark twice for 10 iterations (10 ensemble members)
-        storages = []
-        for _ in range(2):
-            b.reset(approaches)
-            for _ in tqdm(range(10**1)):
-                b.step()
-            storages.append(b.result_storage)
-        
-        # check equality of storages
-        def assertDictEqualRecursive(dict1, dict2, prefix=""):
-            """Recursively assert that two dictionaries are identical."""
-            self.assertEqual(set(dict1.keys()), set(dict2.keys()), "Keys mismatch")
+            # run benchmark twice for 10 iterations (10 ensemble members)
+            storages = []
+            for _ in range(2):
+                b.reset(approaches)
+                for _ in tqdm(range(10**1)):
+                    b.step()
+                storages.append(b.result_storage)
             
-            for key in dict1:
-                value1, value2 = dict1[key], dict2[key]
+            # check equality of storages
+            def assertDictEqualRecursive(dict1, dict2, prefix=""):
+                """Recursively assert that two dictionaries are identical."""
+                self.assertEqual(set(dict1.keys()), set(dict2.keys()), "Keys mismatch")
                 
-                if isinstance(value1, dict) and isinstance(value2, dict):
-                    assertDictEqualRecursive(value1, value2, prefix=prefix + f"/{key}")  # Recursive check
-                else:
-                    self.assertEqual(value1, value2, f"Mismatch at key '{prefix}/{key}'")
-        self.assertTrue(np.array_equal(storages[0].results["estimate"], storages[1].results["estimate"]))
+                for key in dict1:
+                    value1, value2 = dict1[key], dict2[key]
+                    
+                    if isinstance(value1, dict) and isinstance(value2, dict):
+                        assertDictEqualRecursive(value1, value2, prefix=prefix + f"/{key}")  # Recursive check
+                    else:
+                        self.assertEqual(value1, value2, f"Mismatch at key '{prefix}/{key}'")
+            self.assertTrue(np.array_equal(storages[0].results["estimate"], storages[1].results["estimate"]))
     
     def test_serialization_and_deserialization_of_results(self):
         
-        b = get_standard_benchmark()
+        for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
+            b = get_standard_benchmark(captured_parameter=captured_parameter)
 
-        # get generator for the estimates of the approach on the given problem
-        n_checkpoints=[2]
-        t_checkpoints = [10, 100, 1000]
-        approaches = {
-            "bootstrapping": BootstrappingApproach(bootstrap_size=1, num_resamples=1),
-            "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
-        }
+            # get generator for the estimates of the approach on the given problem
+            n_checkpoints=[2]
+            t_checkpoints = [10, 100, 1000]
+            approaches = {
+                "bootstrapping": BootstrappingApproach(bootstrap_size=1, num_resamples=1),
+                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
+            }
 
-        # run benchmark twice for 10 iterations (10 ensemble members)
-        b.reset(approaches)
-        for _ in tqdm(range(10**1)):
-            b.step()
-        
-        # test that the unserialized serialized result storage has the same state as the fresh result storage.
-        storage = b.result_storage
-        recovered_storage = ResultStorage.unserialize(storage.serialize())
-        for i, (v1, v2) in enumerate(zip(storage.t_checkpoints, recovered_storage.t_checkpoints)):
-            self.assertEqual(v1, v2)
-        for p in storage.true_param_values:
-            self.assertTrue(p in recovered_storage.true_param_values)
-            if p == "V[Z_nt]":
-                for i_n, n in enumerate(n_checkpoints):
-                    for i_t, t in enumerate(t_checkpoints):
-                        self.assertEqual(storage.true_param_values[p][i_n, i_t], recovered_storage.true_param_values[p][i_n, i_t])
-            else:
-                for t, v1, v2 in zip(storage.t_checkpoints, storage.true_param_values[p], recovered_storage.true_param_values[p]):
-                    self.assertEqual(v1, v2)
-        for i, (v1, v2) in enumerate(zip(storage.approach_names, recovered_storage.approach_names)):
-            self.assertEqual(v1, v2)
-        self.assertEqual(len(storage.results), len(recovered_storage.results))
-        self.assertEqual(list(storage.results.index), list(recovered_storage.results.index))
-        self.assertEqual(list(storage.results.columns), list(recovered_storage.results.columns))
-        for row1, row2 in zip(storage.results.values, recovered_storage.results.values):
-            self.assertEqual(list(row1), list(row2))
-        self.assertTrue(storage.results.equals(recovered_storage.results))
+            # run benchmark twice for 10 iterations (10 ensemble members)
+            b.reset(approaches)
+            for _ in tqdm(range(10**1)):
+                b.step()
+            
+            # test that the unserialized serialized result storage has the same state as the fresh result storage.
+            storage = b.result_storage
+            recovered_storage = ResultStorage.unserialize(storage.serialize())
+            for i, (v1, v2) in enumerate(zip(storage.t_checkpoints, recovered_storage.t_checkpoints)):
+                self.assertEqual(v1, v2)
+            for p in storage.true_param_values:
+                self.assertTrue(p in recovered_storage.true_param_values)
+                if p == "V[Z_nt]":
+                    for i_n, n in enumerate(n_checkpoints):
+                        for i_t, t in enumerate(t_checkpoints):
+                            self.assertEqual(storage.true_param_values[p][i_n, i_t], recovered_storage.true_param_values[p][i_n, i_t])
+                else:
+                    for t, v1, v2 in zip(storage.t_checkpoints, storage.true_param_values[p], recovered_storage.true_param_values[p]):
+                        self.assertEqual(v1, v2)
+            for i, (v1, v2) in enumerate(zip(storage.approach_names, recovered_storage.approach_names)):
+                self.assertEqual(v1, v2)
+            self.assertEqual(len(storage.results), len(recovered_storage.results))
+            self.assertEqual(list(storage.results.index), list(recovered_storage.results.index))
+            self.assertEqual(list(storage.results.columns), list(recovered_storage.results.columns))
+            for c, t1, t2 in zip(storage.results.columns, storage.results.dtypes, recovered_storage.results.dtypes):
+                print(t1, t2)
+                self.assertEqual(t1, t2, msg=f"Column type mismatch for {c}. Before this had type {t1}, but after recovery the type type is {t2}")
+            for row1, row2 in zip(storage.results.values, recovered_storage.results.values):
+                for c1, c2 in zip(row1, row2):
+                    self.assertEqual(type(c1), type(c2), msg=f"Mismatch in serialized results: {c1} (type {type(c1)}) vs {c2} (type {type(c2)})")
+                    self.assertEqual(c1, c2, msg=f"Mismatch in serialized results: {c1} (type {type(c1)}) vs {c2} (type {type(c2)})")
+                    if c1 is not None:
+                        self.assertTrue(isinstance(c1, (float, int, str)), msg=f"Type should be float or str, but type of {c1} is {type(c1)}")
+            
+            # check that frames are identical (up to data types)
+            pd.testing.assert_frame_equal(storage.results, recovered_storage.results, check_dtype=False)
+            pd.testing.assert_frame_equal(storage.results, recovered_storage.results, check_like=True)
+
+
     
     def test_merge_result_storages(self):
         
-        b = get_standard_benchmark()
+        for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
+            b = get_standard_benchmark(captured_parameter=captured_parameter)
+            
+            # get generator for the estimates of the approach on the given problem
+            n_checkpoints = [2]
+            t_checkpoints = [10, 100, 1000]
+            approaches = {
+                "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1),
+                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
+            }
 
-        # get generator for the estimates of the approach on the given problem
-        n_checkpoints = [2]
-        t_checkpoints = [10, 100, 1000]
-        approaches = {
-            "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1),
-            "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
-        }
+            # run benchmark in isolation for each approach
+            result_storages = {}
+            budgets = set()
+            for a in approaches:
+                b.reset({a: approaches[a]})
+                for _ in tqdm(range(10**1)):
+                    b.step()
+                assert len(b.result_storage.approach_names) == 1 and b.result_storage.approach_names[0] == a
+                result_storages[a] = b.result_storage
+                budgets |= b.result_storage.budgets
+            
+            # merge the result storages
+            rs_merged = ResultStorage.merge(result_storages.values())
 
-        # run benchmark in isolation for each approach
-        result_storages = {}
-        budgets = set()
-        for a in approaches:
-            b.reset({a: approaches[a]})
-            for _ in tqdm(range(10**1)):
-                b.step()
-            assert len(b.result_storage.approach_names) == 1 and b.result_storage.approach_names[0] == a
-            result_storages[a] = b.result_storage
-            budgets |= b.result_storage.budgets
-        
-        # merge the result storages
-        rs_merged = ResultStorage.merge(result_storages.values())
-
-        # now check that the estimates in the merged store are available and identical
-        approach_names = sorted(approaches.keys())
-        self.assertEqual(str(approach_names), str(rs_merged.approach_names))
-        self.assertGreater(len(budgets), 0)
-        self.assertEqual(len(budgets), len(rs_merged.budgets))
-        for a in approaches:
-            for p in rs_merged.true_param_values:
-                for v1, v2 in zip(rs_merged.true_param_values[p], result_storages[a].true_param_values[p]):
-                    assert (v1, v2)
-            for v1, v2 in zip(rs_merged.t_checkpoints, result_storages[a].t_checkpoints):
-                self.assertEqual(v1, v2)
-            df_approach_in_merged = rs_merged.results[rs_merged.results["approach"] == a]
-            df_approach_in_isolation = result_storages[a].results
-            self.assertEqual(len(df_approach_in_isolation), len(df_approach_in_merged))
-            self.assertTrue(np.array_equal(df_approach_in_isolation.values, df_approach_in_merged.values))
+            # now check that the estimates in the merged store are available and identical
+            approach_names = sorted(approaches.keys())
+            self.assertEqual(str(approach_names), str(rs_merged.approach_names))
+            self.assertGreater(len(budgets), 0)
+            self.assertEqual(len(budgets), len(rs_merged.budgets))
+            for a in approaches:
+                for p in rs_merged.true_param_values:
+                    for v1, v2 in zip(rs_merged.true_param_values[p], result_storages[a].true_param_values[p]):
+                        if isinstance(v1, (list, np.ndarray)):
+                            assert all(v1 == v2)
+                        else:
+                            assert v1 == v2
+                for v1, v2 in zip(rs_merged.t_checkpoints, result_storages[a].t_checkpoints):
+                    self.assertEqual(v1, v2)
+                df_approach_in_merged = rs_merged.results[rs_merged.results["approach"] == a]
+                df_approach_in_isolation = result_storages[a].results
+                self.assertEqual(len(df_approach_in_isolation), len(df_approach_in_merged))
+                self.assertTrue(np.array_equal(df_approach_in_isolation.values, df_approach_in_merged.values))
 
     def test_rename_approach(self):
-        b = get_standard_benchmark()
+        for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
+            b = get_standard_benchmark(captured_parameter=captured_parameter)
 
-        # get generator for the estimates of the approach on the given problem
-        n_checkpoints = [2]
-        t_checkpoints = [10, 100, 1000]
+            approaches = {
+                "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1),
+                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
+            }
 
-        approaches = {
-            "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1),
-            "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
-        }
+            # run benchmark
+            b.reset(approaches)
+            for _ in tqdm(range(10**1)):
+                b.step()
+            
+            # check that we can properly rename an approach
+            rs = b.result_storage
+            n_from = "bootstrapping"
+            n_to = "bootstrapping1"
 
-        # run benchmark
-        b.reset(approaches)
-        for _ in tqdm(range(10**1)):
-            b.step()
-        
-        # check that we can properly rename an approach
-        rs = b.result_storage
-        n_from = "bootstrapping"
-        n_to = "bootstrapping1"
+            num_entries_before = np.count_nonzero(rs.results["approach"] == n_from)
 
-        num_entries_before = np.count_nonzero(rs.results["approach"] == n_from)
+            rs.rename_approach(n_from, n_to)
+            self.assertTrue(n_to in rs.approach_names)
+            self.assertTrue(n_from not in rs.approach_names)
+            
+            num_entries_after = np.count_nonzero(rs.results["approach"] == n_to)
 
-        rs.rename_approach(n_from, n_to)
-        self.assertTrue(n_to in rs.approach_names)
-        self.assertTrue(n_from not in rs.approach_names)
-        
-        num_entries_after = np.count_nonzero(rs.results["approach"] == n_to)
-
-        self.assertEqual(num_entries_before, num_entries_after)
+            self.assertEqual(num_entries_before, num_entries_after)

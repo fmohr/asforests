@@ -89,7 +89,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     method_name = keyfields["method"]
 
     # create benchmark
-    captured_parameters = ["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]
+    #captured_parameters = ["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]
+    captured_parameters = ["V[Z_nt]", "V[Z_nt|D_val]"]
     for captured_parameter in captured_parameters:
 
         # get approach object
@@ -177,7 +178,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             # run benchmark 
             logger.info(f"Computing ground truth")
             b.reset(approaches)
-            max_budget = 10**3
+            max_budget = 10**2
             logger.info(f"Done. Now obtaining estimates for budgets b from 1 to {max_budget}")
 
             for _ in tqdm(range(max_budget)):

@@ -143,7 +143,7 @@ class Benchmark:
                             param=self.captured_parameter,
                             n=n,
                             t=t,
-                            estimate=e[0],
+                            estimate=e[0] if self.captured_parameter != "V[Z_nt]" else e[0][0],
                             runtime=runtime_add + runtime_predict
                         )
                 else:

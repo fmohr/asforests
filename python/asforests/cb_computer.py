@@ -177,6 +177,11 @@ class EnsemblePerformanceAssessor:
         self.xi_term_means = None
         self.data_points_processed_for_cov_estimate = 0
 
+        self.logger.info(
+            "Initialized Ensemble Performance Asessor. Configuration is:"
+            f"\n\t{self.threshold_for_number_of_samples_to_exclude_param=}"
+        )
+
     @property
     def t(self):
         return len(self.deviation_matrices)
@@ -271,8 +276,8 @@ class EnsemblePerformanceAssessor:
                 allowed_observations = np.max(self.threshold_for_number_of_samples_to_exclude_param) if self.moment_builder.n is None else max([0, min(np.max(self.threshold_for_number_of_samples_to_exclude_param) - self.moment_builder.n)])
                 if allowed_observations > 0:
                     self.moment_builder.add_batch(d[:allowed_observations])
-                    if np.all(self.moment_builder.n >= self.threshold_for_number_of_samples_to_exclude_param):
-                        self.logger.info(f"Used {self.moment_builder.n} instances for all targets, now disabling moment builder.")
+                    if np.all(np.min(self.moment_builder.n) >= self.threshold_for_number_of_samples_to_exclude_param):
+                        self.logger.info(f"Used {self.moment_builder.n} instances for all targets, now disabling basic moment builder E[D^1] and V[D^1].")
                         self._basic_moment_builder_active = False
                     if self.enable_asserts:
                         if self.execute_asserts and allowed_observations >= len(d):
@@ -385,11 +390,11 @@ class EnsemblePerformanceAssessor:
 
     def update_estimates_of_covs_of_xi_terms_based_on_last_added_deviation_matrix(self):
         if (
-            (self.estimate_performance_var_for_iid_case and (
+            (not self.estimate_performance_var_for_iid_case or (
                 (self.cov_updater_for_iid_case_equal_instances is not None and not self.cov_updater_for_iid_case_equal_instances.is_active) and
                 (self.cov_updater_for_iid_case_arbitrary_instances is not None and not self.cov_updater_for_iid_case_arbitrary_instances.is_active)
-            )) or
-            (self.estimate_performance_var_for_conditional_case and self.cov_updater_for_conditional_case is not None and not self.cov_updater_for_conditional_case.is_active)
+            )) and
+            (not self.estimate_performance_var_for_conditional_case or (self.cov_updater_for_conditional_case is not None and not self.cov_updater_for_conditional_case.is_active))
         ):
             self.logger.debug("Skipping cov updates since no cov updater is active anymore.")
             return

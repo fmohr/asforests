@@ -2,11 +2,12 @@ import numpy as np
 import pandas as pd
 import json
 from io import StringIO
+from decimal import Decimal
 
 
 class ResultStorage:
 
-    def __init__(self, true_param_values, n_checkpoints, t_checkpoints, results=None, precision=7):
+    def __init__(self, true_param_values, n_checkpoints, t_checkpoints, results=None):
         self._true_param_values = true_param_values
 
         for p, v in true_param_values.items():
@@ -23,7 +24,6 @@ class ResultStorage:
         
         self._n_checkpoints = [int(n) for n in n_checkpoints]
         self._t_checkpoints = [int(t) for t in t_checkpoints]
-        self._precision = precision
 
         # self.estimates[p][a][t][b] will contain the estimate for parameter p obtained from approach a for ensemble size t when b ensembles were trained (budget)
         self._results = None
@@ -54,25 +54,37 @@ class ResultStorage:
     def budgets(self):
         return set(pd.unique(self._results["budget"])) if self._results is not None else set()
 
-    @property
-    def precision(self):
-        return self._precision
-    
     def serialize(self, f=None):
 
+        # serialize ground truth
+        serializable_ground_truth = {}
+        for p, l in self._true_param_values.items():
+            if p == "V[Z_nt]":
+                serializable_ground_truth[p] = [[Decimal(str(v)) for v in u] for u in l.tolist()]
+            else:
+                serializable_ground_truth[p] = [Decimal(str(v)) for v in l.tolist()]
+
+        # serialize estimates
+        if self._results is not None:
+            serializable_results = self._results.copy()
+            serializable_results["estimate"] = serializable_results["estimate"].apply(lambda x: str(Decimal(str(x))))
+            serializable_results["runtime"] = serializable_results["runtime"].apply(lambda x: str(Decimal(str(x))))
+            serializable_results = serializable_results.to_json(orient="records")
+        else:
+            serializable_results = None
+        
         d = {
-            "true_param_values": {p: l.tolist() for p, l in self._true_param_values.items()},
+            "true_param_values": serializable_ground_truth,
             "n_checkpoints": [int(n) for n in self._n_checkpoints],
             "t_checkpoints": [int(t) for t in self._t_checkpoints],
-            "results": self._results.to_json(orient="records") if self._results is not None else None,
-            "precision": self.precision
+            "results": serializable_results
         }
 
         if f is None:
 
             """Convert the object to a JSON string."""
-            return json.dumps(d)
-        json.dump(d, f)
+            return json.dumps(d, default=str)
+        json.dump(d, f, default=str)
 
     @classmethod
     def unserialize(cls, src):
@@ -86,15 +98,24 @@ class ResultStorage:
         else:
             data = json.load(src, object_pairs_hook=convert_keys_to_int)
         
-        data["results"] = pd.read_json(StringIO(data["results"]))
-        data["results"]["n"] = data["results"]["n"].astype("Int64")
-        data["results"]["n"] = data["results"]["n"].replace({pd.NA: None, np.nan: None})
+        # true param values from Decimal str to float
         data["true_param_values"] = {
-            k: np.array(v)
+            k: np.array([float(u) if k != "V[Z_nt]" else [float(k) for k in u] for u in v])
             for k, v in data["true_param_values"].items()
         }
-        data["results"]["estimate"] = np.round(data["results"]["estimate"], data["precision"])
-        data["results"]["runtime"] = np.round(data["results"]["runtime"], data["precision"])
+        
+        data["results"] = pd.read_json(StringIO(data["results"]), dtype=object).astype({
+            "budget": "int64",
+            "t": "int64",
+            "n": "Int64" # Int64 to handle nans
+        })
+        data["results"]["n"] = data["results"]["n"].replace({pd.NA: None, np.nan: None})
+        data["results"]["n"] = data["results"]["n"].astype("object" if any(v is None for v in data["results"]["n"]) else "int64")
+        print(data["results"]["estimate"])
+        data["results"]["estimate"] = data["results"]["estimate"].apply(lambda x: float(Decimal(x)))
+        data["results"]["runtime"] = data["results"]["runtime"].apply(lambda x: float(Decimal(x)))
+
+        del data["precision"]
         return cls(**data)
 
     @classmethod
@@ -152,6 +173,8 @@ class ResultStorage:
         if t not in self._t_checkpoints:
             raise ValueError(f"Unsupported value for {t=}. Should be in {self._t_checkpoints}")
 
+        if not isinstance(estimate, np.number) and type(estimate) != float:
+            raise ValueError(f"Estimate should be float but got {type(estimate)}: {estimate}")
         key_cols = ["approach", "budget", "param", "n", "t"]
         val_cols = ["estimate", "runtime"]
         all_cols = key_cols + val_cols
