@@ -5,6 +5,7 @@ from sklearn.datasets import make_classification
 import numpy as np
 import itertools as it
 import json
+from pathlib import Path
 
 def get_standard_problem_instance(
         n_classes=3,
@@ -201,6 +202,98 @@ def test_reproducibility_from_seed(seed):
     assert np.array_equal(pi1.y_oh, pi2.y_oh)
     assert np.array_equal(pi1.predictions, pi2.predictions)
     assert np.array_equal(pi1.deviations, pi2.deviations)
+
+def test_reproducibility_of_ground_truth_sampling():
+
+    X, y = make_classification(n_classes=3, n_samples=10**4, n_features=20, n_informative=10, random_state=0)
+
+    portion_validation = 3
+    portion_training = 0.1
+
+    pi = ProblemInstance(
+        data_description=(X, y),
+        is_classification=True,
+        data_seed=0,
+        ensemble_seed=0,
+        num_possible_ensemble_members=4,
+        training_instances_per_class=portion_training,
+        validation_size=portion_validation,
+        num_samples_allowed_for_ground_truth_approximation=0,
+        n_checkpoints=None,
+        t_checkpoints=None
+    )
+
+    # estimate ground truth via sampling
+    scores_iid = []
+    for outer_round in range(2):
+
+        gtc = GroundTruthComputer(pi.deviations)
+
+        if outer_round == 1:
+            cachefile = "tmp/cachetest.jsonl"
+            path_to_cachefile = Path(cachefile)
+            if path_to_cachefile.exists():
+                path_to_cachefile.unlink()
+
+            for _ in range(1, 3):
+                tmp_out = gtc.sample_iid_scores(
+                    t_checkpoints=[10, 100],
+                    n_checkpoints=[10, 100],
+                    num_samples=500 * _,
+                    num_samples_per_job=None,
+                    n_jobs=1,
+                    max_entries_in_batch_matrix=10**8,
+                    cachefile=cachefile
+                )
+
+                if _ == 2:
+                    scores_iid.append(tmp_out)
+        else:
+            scores_iid.append(gtc.sample_iid_scores(
+                t_checkpoints=[10, 100],
+                n_checkpoints=[10, 100],
+                num_samples=10**3,
+                num_samples_per_job=None,
+                n_jobs=1,
+                max_entries_in_batch_matrix=10**8
+            ))
+
+    print(scores_iid[0].shape)
+    assert np.allclose(scores_iid[0], scores_iid[1])
+
+    scores_cond = []
+    for outer_round in range(2):
+        gtc = GroundTruthComputer(pi.deviations)
+
+        if outer_round == 1:
+            cachefile = "tmp/cachetest.jsonl"
+            path_to_cachefile = Path(cachefile)
+            if path_to_cachefile.exists():
+                path_to_cachefile.unlink()
+
+            for _ in range(1, 3):
+                tmp_out = gtc.sample_conditional_scores(
+                    t_checkpoints=[10, 100],
+                    num_samples=500 * _,
+                    num_samples_per_job=None,
+                    n_jobs=1,
+                    max_entries_in_batch_matrix=10**8,
+                    cachefile=cachefile
+                )
+
+                if _ == 2:
+                    scores_cond.append(tmp_out)
+        else:
+            scores_cond.append(gtc.sample_conditional_scores(
+                t_checkpoints=[10, 100],
+                num_samples=10**3,
+                num_samples_per_job=None,
+                n_jobs=1,
+                max_entries_in_batch_matrix=10**8
+            ))
+        
+    print(scores_cond[0].shape)
+    assert np.allclose(scores_cond[0], scores_cond[1])
 
 
 def test_ground_truth_correctness_for_small_instances():

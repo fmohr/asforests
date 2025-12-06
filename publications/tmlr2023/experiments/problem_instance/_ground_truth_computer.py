@@ -1,9 +1,12 @@
 import itertools as it
 import pandas as pd
+import jsonlines
 from tqdm import tqdm
 import numpy as np
 from joblib import Parallel, delayed
+import pathlib
 
+import json, jsonlines
 import logging
 
 
@@ -53,7 +56,16 @@ class GroundTruthComputer:
             return self.get_all_ensemble_combinations_on_deviations(t=t)["z"].var(ddof=0 if bias else 1)
 
     
-    def sample_iid_scores(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
+    def sample_iid_scores(
+            self,
+            t_checkpoints,
+            n_checkpoints=2,
+            num_samples=10**6,
+            num_samples_per_job=10**5,
+            n_jobs=1,
+            max_entries_in_batch_matrix = 10**8,
+            cachefile=None
+        ):
         """
             This method approximates the true parameters in the iid setting by creating random samples of BOTH datasets and ensembles.
             This is a crucial difference to bootstrapping, which samples only in the ensemble space. 
@@ -86,6 +98,17 @@ class GroundTruthComputer:
         num_batches = int(np.ceil(num_samples_per_job / batch_size))
         n_bar = num_batches * len(t_checkpoints) * len(n_checkpoints)
 
+        # check whether we have a cache file
+        if cachefile is not None:
+            cachfile_path = pathlib.Path(cachefile)
+            if cachfile_path.exists():
+                with jsonlines.open(file=cachfile_path, mode="r") as reader:
+                    cache = list(reader)
+            else:
+                cache = []
+        else:
+            cache = None
+
         self.logger.info(
             f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
             f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints) * len(n_checkpoints)} n-t-combinations. "
@@ -94,14 +117,27 @@ class GroundTruthComputer:
         
 
         def collect_scores_for_job(seed, n_checkpoints, t_checkpoints):
-
-            # create random state
-            random_state = np.random.RandomState(seed)
+            
+            cache_batches = []
 
             # outer loop over batches
             score_matrix = np.zeros((num_batches, batch_size, len(n_checkpoints), len(t_checkpoints)))
             pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
+
+                # create random state
+                random_state = np.random.RandomState(13 * (seed + 19 * batch_idx))
+
+                if cache is not None:
+                    cache_read = None
+                    for row in cache:
+                        if row[0] == seed and row[1] == batch_idx and row[2]:
+                            cache_read = np.array(row[3])
+                            break
+                    if cache_read is not None:
+                        score_matrix[batch_idx] = cache_read
+                        pbar.update(len(t_checkpoints) * len(n_checkpoints))
+                        continue
 
                 # compute the instance-wise value of Z_nt for all ensemble sizes simultaneously
                 for j, t in enumerate(t_checkpoints):
@@ -112,16 +148,38 @@ class GroundTruthComputer:
                         row_indices = np.arange(batch_size)[:, None]
                         score_matrix[batch_idx, :, i, j] = ensemble_errors_on_instances[row_indices, datasets_in_batch_of_size_n].mean(axis=1)
                         pbar.update(1)
+                
+                cache_batches.append([seed, batch_idx, True, score_matrix[batch_idx].tolist()])
+                if cachefile is not None and (batch_idx == num_batches - 1 or len(cache_batches) == 10):
+                    
+                    folder = cachfile_path.parent
+                    folder.mkdir(exist_ok=True, parents=True)
+
+                    # append result
+                    with cachfile_path.open("a") as f:
+                        for r in cache_batches:
+                            f.write(json.dumps(r) + "\n")
+                    cache_batches = []
+            
             pbar.close()
             return score_matrix.reshape(-1, *score_matrix.shape[2:])
         
         if n_jobs != 1 and num_sub_jobs > 1:
             results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs))
         else:
-            results = [collect_scores_for_job(x, n_checkpoints, t_checkpoints) for x in range(num_sub_jobs)]
+            results = [collect_scores_for_job(seed=seed, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints) for seed in range(num_sub_jobs)]
+
         return np.concatenate(results)
 
-    def sample_conditional_scores(self, t_checkpoints, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
+    def sample_conditional_scores(
+            self,
+            t_checkpoints,
+            num_samples=10**6,
+            num_samples_per_job=10**5,
+            n_jobs=1,
+            max_entries_in_batch_matrix=10**8,
+            cachefile=None
+        ):
         if num_samples_per_job is None:
             num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
@@ -139,6 +197,17 @@ class GroundTruthComputer:
         num_batches = int(np.ceil(num_samples_per_job / batch_size))
         n_bar = num_batches * len(t_checkpoints)
 
+        # check whether we have a cache file
+        if cachefile is not None:
+            cachfile_path = pathlib.Path(cachefile)
+            if cachfile_path.exists():
+                with jsonlines.open(file=cachfile_path, mode="r") as reader:
+                    cache = list(reader)
+            else:
+                cache = []
+        else:
+            cache = None
+
         self.logger.info(
             f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
             f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints)} t-checkpoints. "
@@ -147,19 +216,45 @@ class GroundTruthComputer:
 
         def collect_scores_for_job(seed, t_checkpoints):
 
-            # create random state
-            random_state = np.random.RandomState(seed)
+            cache_batches = []
 
             # outer loop over batches
             score_matrix = np.zeros((num_batches, batch_size, len(t_checkpoints)))
             pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
+                # create random state
+                random_state = np.random.RandomState(13 * (seed + 19 * batch_idx))
+
+                if cache is not None:
+                    cache_read = None
+                    for row in cache:
+                        if row[0] == seed and row[1] == batch_idx and not row[2]:
+                            cache_read = np.array(row[3])
+                            break
+                    if cache_read is not None:
+                        score_matrix[batch_idx] = cache_read
+                        pbar.update(len(t_checkpoints))
+                        continue
+
                 # compute the instance-wise value of Z_nt for all ensemble sizes simultaneously
                 for j, t in enumerate(t_checkpoints):
                     ensembles_in_batch_of_size_t = random_state.randint(0, self.deviations.shape[0], size=(batch_size, t))
                     score_matrix[batch_idx, :, j] = (self.deviations[ensembles_in_batch_of_size_t].mean(axis=1)**2).mean(axis=1).sum(axis=1)
                     pbar.update(1)
+
+                cache_batches.append([seed, batch_idx, False, score_matrix[batch_idx].tolist()])
+                if cachefile is not None and (batch_idx == num_batches - 1 or len(cache_batches) == 10):
+                    
+                    folder = cachfile_path.parent
+                    folder.mkdir(exist_ok=True, parents=True)
+
+                    # append result
+                    with cachfile_path.open("a") as f:
+                        for r in cache_batches:
+                            f.write(json.dumps(r) + "\n")
+                    cache_batches = []
+
             pbar.close()
             return score_matrix.reshape(-1, *score_matrix.shape[2:])
         

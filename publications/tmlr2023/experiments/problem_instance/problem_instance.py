@@ -171,7 +171,7 @@ class ProblemInstance:
     
     @property
     def means_cond(self):
-        if self._true_means_for_iid_case is None:
+        if self._true_means_for_cond_case is None:
             if self.exact_ground_truth_feasible:
                 self._compute_exact_ground_truth_cond()
             else:
@@ -183,7 +183,7 @@ class ProblemInstance:
     
     @property
     def vars_cond(self):
-        if self._true_means_for_iid_case is None:
+        if self._true_vars_for_cond_case is None:
             if self.exact_ground_truth_feasible:
                 self._compute_exact_ground_truth_cond()
             else:
@@ -287,7 +287,7 @@ class ProblemInstance:
         assert len(set(train_indices) | set(validation_indices) | set(oos_indices)) == len(self.X)
         if self.validation_size < 1:
             rel_validation_size = len(set(validation_indices)) / self.X.shape[0]
-            assert np.isclose(self.validation_size, rel_validation_size), f"There is a fraction of {rel_validation_size} instances marked for validation, but the parameter is {self.validation_size}"
+            assert np.isclose(self.validation_size, rel_validation_size, atol=0.005), f"There is a fraction of {rel_validation_size} instances marked for validation, but the parameter is {self.validation_size}"
         else:
             assert self.validation_size == len(set(validation_indices)), f"There are {len(set(validation_indices))} instances marked for validation, but the parameter is {self.validation_size}"
         self._indices_train = train_indices

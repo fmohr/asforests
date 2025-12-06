@@ -2,6 +2,7 @@ from experiments.problem_instance.problem_instance import ProblemInstance
 from experiments.problem_instance._ground_truth_computer import GroundTruthComputer
 from py_experimenter.experimenter import PyExperimenter
 from pathlib import Path
+import jsonlines
 
 from sklearn.datasets import fetch_openml
 import logging
@@ -71,6 +72,10 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     )
     assert pi.predictions_val.shape[1] == validation_instances, f"Expected {validation_instances} validation instances, but ProblemInstance has {len(pi.predictions_val)}"
 
+
+    # get file
+    file = Path(f"tmp/{openmlid}/{data_seed}_{num_possible_ensemble_members}_{validation_instances}.jsonl")
+
     # approximate ground truth for IID case
     num_samples = num_samples_allowed_for_ground_truth_approximation
     num_samples_per_job = int(np.ceil(num_samples / n_jobs))
@@ -86,16 +91,20 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         num_samples=num_samples_allowed_for_ground_truth_approximation,
         num_samples_per_job=num_samples_per_job,
         n_jobs=N_JOBS,
-        max_entries_in_batch_matrix=10**8
+        max_entries_in_batch_matrix=10**8,
+        cachefile=file
     )
     print(scores_iid.shape)
+
+    # approximate ground truth for conditional case
     gtc_cond = GroundTruthComputer(deviations=pi.deviations_val, logger=logger)
     scores_cond = gtc_cond.sample_conditional_scores(
         t_checkpoints=t_checkpoints,
         num_samples=num_samples_allowed_for_ground_truth_approximation,
         num_samples_per_job=num_samples_per_job,
         n_jobs=N_JOBS,
-        max_entries_in_batch_matrix=10**8
+        max_entries_in_batch_matrix=10**8,
+        cachefile=file
     )
     print(scores_cond.shape)
     t_end = time.time()
@@ -127,15 +136,15 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
-    N_JOBS = 1
-    NUM_SAMPLES = 10**5
-    run_experiment(keyfields={
-        "openmlid": 1590,
-        "num_possible_ensemble_members": 256,
-        "data_seed": 9,
-        "validation_instances": 64
-    }, result_processor=None, custom_config=None)
-    exit(0)
+    #N_JOBS = 1
+    #NUM_SAMPLES = 10**4
+    # run_experiment(keyfields={
+    #     "openmlid": 61,
+    #     "num_possible_ensemble_members": 32,
+    #     "data_seed": 9,
+    #     "validation_instances": 64
+    # }, result_processor=None, custom_config=None)
+    # exit(0)
 
     if len(sys.argv) != 3:
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
