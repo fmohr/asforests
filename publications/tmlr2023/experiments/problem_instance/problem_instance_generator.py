@@ -40,6 +40,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, num_possible_ensemble_members, validation_instances):
 
     logger = logging.getLogger("experimenter")
+    logger.info(f"Starting experiment for dataset {openmlid} (seed {data_seed}) under {num_possible_ensemble_members} possible ensemble members and {validation_instances} validation instances per class.")
     filename = f"problem_instances/{openmlid}_{data_seed}_{num_possible_ensemble_members}_{validation_instances}.json"
     filename_gz = filename + ".gz"
     path = Path(filename)
@@ -94,7 +95,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         max_entries_in_batch_matrix=10**8,
         cachefile=file
     )
-    print(scores_iid.shape)
+    logger.info(scores_iid.shape)
 
     # approximate ground truth for conditional case
     gtc_cond = GroundTruthComputer(deviations=pi.deviations_val, logger=logger)
@@ -136,15 +137,15 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
-    #N_JOBS = 1
-    #NUM_SAMPLES = 10**4
-    # run_experiment(keyfields={
-    #     "openmlid": 61,
-    #     "num_possible_ensemble_members": 32,
-    #     "data_seed": 9,
-    #     "validation_instances": 64
-    # }, result_processor=None, custom_config=None)
-    # exit(0)
+    N_JOBS = 1
+    NUM_SAMPLES = 10**4
+    run_experiment(keyfields={
+        "openmlid": 61,
+        "num_possible_ensemble_members": 8,
+        "data_seed": 9,
+        "validation_instances": 2
+    }, result_processor=None, custom_config=None)
+    exit(0)
 
     if len(sys.argv) != 3:
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")

@@ -247,7 +247,7 @@ class ProblemInstance:
                 # prepare data with label encoding for categorical attributes
                 self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
                 self._y = np.array(df[ds.default_target_attribute].values)
-                self.logger.info(f"Data ready.")
+                self.logger.info(f"Data of shape {self._X.shape} ready.")
             elif type(self.data_description) == tuple:
                 self._X, self._y = self.data_description
             else:

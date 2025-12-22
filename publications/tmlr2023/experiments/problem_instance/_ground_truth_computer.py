@@ -76,6 +76,7 @@ class GroundTruthComputer:
             t (_type_): _description_
             num_samples (_type_, optional): _description_. Defaults to 10**4.
         """
+        self.logger.info(f"Starting iid score sampling with parameters {t_checkpoints=}, {n_checkpoints=}, {num_samples=}, {num_samples_per_job=}, {n_jobs=}, {max_entries_in_batch_matrix=}, {cachefile=}.")
         if num_samples_per_job is None:
             num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
@@ -110,7 +111,7 @@ class GroundTruthComputer:
             cache = None
 
         self.logger.info(
-            f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
+            f"Approximating ground truth from slices of a {self.deviations.shape}-shaped world (dimensions being #ensemble members, #instances, #classes). "
             f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints) * len(n_checkpoints)} n-t-combinations. "
             f"Sample values will be determined {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
             f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations.")
@@ -122,12 +123,14 @@ class GroundTruthComputer:
 
             # outer loop over batches
             score_matrix = np.zeros((num_batches, batch_size, len(n_checkpoints), len(t_checkpoints)))
+            self.logger.info(f"Initialized score matrix with shape {score_matrix.shape} and size {int(np.ceil(score_matrix.nbytes / 1024**2))}MB.")
             pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
                 # create random state
                 random_state = np.random.RandomState(13 * (seed + 19 * batch_idx))
 
+                # check whether we have a cached value
                 if cache is not None:
                     cache_read = None
                     for row in cache:
@@ -169,7 +172,9 @@ class GroundTruthComputer:
         else:
             results = [collect_scores_for_job(seed=seed, n_checkpoints=n_checkpoints, t_checkpoints=t_checkpoints) for seed in range(num_sub_jobs)]
 
-        return np.concatenate(results)
+        out = np.concatenate(results)
+        self.logger.info(f"Finished iid score sampling. Obtained array of shape {out.shape}.")
+        return out
 
     def sample_conditional_scores(
             self,
@@ -180,6 +185,7 @@ class GroundTruthComputer:
             max_entries_in_batch_matrix=10**8,
             cachefile=None
         ):
+        self.logger.info(f"Starting conditional score sampling with parameters {t_checkpoints=}, {num_samples=}, {num_samples_per_job=}, {n_jobs=}, {max_entries_in_batch_matrix=}, {cachefile=}.")
         if num_samples_per_job is None:
             num_samples_per_job = num_samples
         num_sub_jobs = int(np.ceil(num_samples / num_samples_per_job))
@@ -209,7 +215,7 @@ class GroundTruthComputer:
             cache = None
 
         self.logger.info(
-            f"Approximating ground truth on world with {self.deviations.shape[0]} ensemble members on {self.deviations.shape[1]} instances. "
+            f"Approximating ground truth from slices of a {self.deviations.shape}-shaped world (dimensions being #ensemble members, #instances, #classes). "
             f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints)} t-checkpoints. "
             f"Sample values will be determine {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
             f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations.")
@@ -262,7 +268,10 @@ class GroundTruthComputer:
             results = Parallel(n_jobs=n_jobs, backend='loky')(delayed(collect_scores_for_job)(x, t_checkpoints) for x in range(num_sub_jobs))
         else:
             results = [collect_scores_for_job(x, t_checkpoints) for x in range(num_sub_jobs)]
-        return np.concatenate(results)
+        
+        out = np.concatenate(results)
+        self.logger.info(f"Finished iid score sampling. Obtained array of shape {out.shape}.")
+        return out
     
     def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
         scores = self.sample_iid_scores(
