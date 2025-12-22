@@ -137,15 +137,15 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
-    N_JOBS = 1
-    NUM_SAMPLES = 10**4
-    run_experiment(keyfields={
-        "openmlid": 61,
-        "num_possible_ensemble_members": 8,
-        "data_seed": 9,
-        "validation_instances": 2
-    }, result_processor=None, custom_config=None)
-    exit(0)
+    # N_JOBS = 1
+    # NUM_SAMPLES = 10**4
+    # run_experiment(keyfields={
+    #     "openmlid": 61,
+    #     "num_possible_ensemble_members": 8,
+    #     "data_seed": 9,
+    #     "validation_instances": 2
+    # }, result_processor=None, custom_config=None)
+    # exit(0)
 
     if len(sys.argv) != 3:
         raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
