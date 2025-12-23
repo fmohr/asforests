@@ -8,6 +8,7 @@ import pathlib
 
 import json, jsonlines
 import logging
+import time
 
 
 def int_to_vector(num, base, d):
@@ -105,6 +106,7 @@ class GroundTruthComputer:
             if cachfile_path.exists():
                 with jsonlines.open(file=cachfile_path, mode="r") as reader:
                     cache = list(reader)
+                self.logger.info(f"Read in {len(cache)} entries from {cachfile_path}.")
             else:
                 cache = []
         else:
@@ -120,6 +122,9 @@ class GroundTruthComputer:
         def collect_scores_for_job(seed, n_checkpoints, t_checkpoints):
             
             cache_batches = []
+            relevant_cache = [row for row in cache if row[0] == seed and row[2]] if cache is not None else None
+            cache_batch_indices = {row[1]: np.array(row[3]) for row in relevant_cache} if relevant_cache is not None else None
+            self.logger.info(f"Initialized cache with {len(relevant_cache)} entries.")
 
             # outer loop over batches
             score_matrix = np.zeros((num_batches, batch_size, len(n_checkpoints), len(t_checkpoints)))
@@ -131,14 +136,9 @@ class GroundTruthComputer:
                 random_state = np.random.RandomState(13 * (seed + 19 * batch_idx))
 
                 # check whether we have a cached value
-                if cache is not None:
-                    cache_read = None
-                    for row in cache:
-                        if row[0] == seed and row[1] == batch_idx and row[2]:
-                            cache_read = np.array(row[3])
-                            break
-                    if cache_read is not None:
-                        score_matrix[batch_idx] = cache_read
+                if relevant_cache is not None:
+                    if batch_idx in cache_batch_indices:
+                        score_matrix[batch_idx] = cache_batch_indices[batch_idx]
                         pbar.update(len(t_checkpoints) * len(n_checkpoints))
                         continue
 
@@ -209,6 +209,7 @@ class GroundTruthComputer:
             if cachfile_path.exists():
                 with jsonlines.open(file=cachfile_path, mode="r") as reader:
                     cache = list(reader)
+                self.logger.info(f"Read in {len(cache)} entries from {cachfile_path}.")
             else:
                 cache = []
         else:
@@ -223,23 +224,22 @@ class GroundTruthComputer:
         def collect_scores_for_job(seed, t_checkpoints):
 
             cache_batches = []
+            relevant_cache = [row for row in cache if row[0] == seed and not row[2]] if cache is not None else None
+            cache_batch_indices = {row[1]: np.array(row[3]) for row in relevant_cache} if relevant_cache is not None else None
+            self.logger.info(f"Initialized cache with {len(relevant_cache)} entries.")
 
             # outer loop over batches
             score_matrix = np.zeros((num_batches, batch_size, len(t_checkpoints)))
+            self.logger.info(f"Initialized score matrix with shape {score_matrix.shape} and size {int(np.ceil(score_matrix.nbytes / 1024**2))}MB.")
             pbar = tqdm(total=n_bar)
             for batch_idx in range(num_batches):
 
                 # create random state
                 random_state = np.random.RandomState(13 * (seed + 19 * batch_idx))
 
-                if cache is not None:
-                    cache_read = None
-                    for row in cache:
-                        if row[0] == seed and row[1] == batch_idx and not row[2]:
-                            cache_read = np.array(row[3])
-                            break
-                    if cache_read is not None:
-                        score_matrix[batch_idx] = cache_read
+                if relevant_cache is not None:
+                    if batch_idx in cache_batch_indices:
+                        score_matrix[batch_idx] = cache_batch_indices[batch_idx]
                         pbar.update(len(t_checkpoints))
                         continue
 
