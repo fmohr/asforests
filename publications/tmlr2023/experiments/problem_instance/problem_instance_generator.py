@@ -13,6 +13,8 @@ import json
 
 import gzip
 import shutil
+import psutil, os
+
 
 import time
 
@@ -80,8 +82,10 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     # approximate ground truth for IID case
     num_samples = num_samples_allowed_for_ground_truth_approximation
     num_samples_per_job = int(np.ceil(num_samples / n_jobs))
+    process = psutil.Process(os.getpid())
     logger.info(
         f"Starting ground truth approximation for dataset {openmlid} (seed {data_seed}) under {num_possible_ensemble_members} possible ensemble members and {validation_instances} validation instances per class using {num_samples} samples generated through {n_jobs} jobs."
+        f" Current memory consumption is {np.round(process.memory_info().rss / 1024**3, 2)}GB"
     )
     logger.info(f"Number of samples per job is {num_samples_per_job}")
     t_start = time.time()
@@ -109,7 +113,10 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     )
     print(scores_cond.shape)
     t_end = time.time()
-    logger.info(f"Overall time to approximate ground truth was {t_end - t_start}s")
+    logger.info(
+        f"Overall time to approximate ground truth was {t_end - t_start}s."
+        f" Current memory consumption is {np.round(process.memory_info().rss / 1024**3, 2)}GB"
+    )
 
     # dump instance
     d = pi.to_dict()
