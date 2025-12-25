@@ -9,6 +9,7 @@ import pathlib
 import json, jsonlines
 import logging
 import time
+import psutil, os
 
 
 def int_to_vector(num, base, d):
@@ -215,11 +216,15 @@ class GroundTruthComputer:
         else:
             cache = None
 
+        # output task and current memory consumption
+        process = psutil.Process(os.getpid())
         self.logger.info(
             f"Approximating ground truth from slices of a {self.deviations.shape}-shaped world (dimensions being #ensemble members, #instances, #classes). "
             f"We will use {num_samples} samples of Z_nt for each out of {len(t_checkpoints)} t-checkpoints. "
             f"Sample values will be determine {'sequentially' if n_jobs == 1 else 'in parallelized manner (' + str(n_jobs) + ' jobs)'} "
-            f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations.")
+            f"in {num_batches} batches of size {batch_size}, leading to a total of {n_bar} operations."
+            f" Current memory consumption is {np.round(process.memory_info().rss / 1024**3, 2)}GB"
+        )
 
         def collect_scores_for_job(seed, t_checkpoints):
 
