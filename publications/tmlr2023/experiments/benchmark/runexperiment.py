@@ -191,7 +191,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    if True:
+    if False:
         run_experiment({
             "openmlid": 1049,
             "num_possible_ensemble_members": 64,
