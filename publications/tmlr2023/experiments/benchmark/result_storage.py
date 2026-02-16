@@ -111,11 +111,9 @@ class ResultStorage:
         })
         data["results"]["n"] = data["results"]["n"].replace({pd.NA: None, np.nan: None})
         data["results"]["n"] = data["results"]["n"].astype("object" if any(v is None for v in data["results"]["n"]) else "int64")
-        print(data["results"]["estimate"])
-        data["results"]["estimate"] = data["results"]["estimate"].apply(lambda x: float(Decimal(x)))
-        data["results"]["runtime"] = data["results"]["runtime"].apply(lambda x: float(Decimal(x)))
+        data["results"]["estimate"] = data["results"]["estimate"].apply(lambda x: float(Decimal(x if type(x) != list else x[0])))
+        data["results"]["runtime"] = data["results"]["runtime"].apply(lambda x: float(Decimal(x if type(x) != list else x[0])))
 
-        del data["precision"]
         return cls(**data)
 
     @classmethod
@@ -287,6 +285,3 @@ class ResultStorage:
             df = df[df["param"].isin(params)]
         df["error"] = self.compute_error(df)
         return df
-
-
-

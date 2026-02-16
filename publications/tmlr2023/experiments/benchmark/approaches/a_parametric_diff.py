@@ -250,11 +250,11 @@ class ParametricDifferenceModelApproach(Approach):
             [np.ones_like(_t) / _n, 1 / (_n * _t), 1 / (_n * _t**2), 1 / (_n * _t**3), 1 / _t, 1 / _t**2, 1 / _t**3]
             for _n, _t in nt_pairs
         ])
-        return self.model_v_iid.predict(queries).reshape(len(n), len(t))
+        return np.maximum(0, self.model_v_iid.predict(queries).reshape(len(n), len(t)))
     
     def estimate_performance_var_in_conditional_setup(self, t):
         t = np.asarray(t).reshape(-1)
         if self.model_v_cond is None:
             self._estimate_params_for_conditional_var()
         
-        return self.model_v_cond.predict(np.array([np.ones_like(t), 1 / t, 1 / t**2, 1 / t**3]).T)
+        return np.maximum(0, self.model_v_cond.predict(np.array([np.ones_like(t), 1 / t, 1 / t**2, 1 / t**3]).T))

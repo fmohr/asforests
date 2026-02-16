@@ -679,9 +679,11 @@ class DynamicCovUpdater:
                         relevant_old_terms = self.considered_old_xi_terms
                         
                     # first case: the new ensemble member occurs only in one of the xi-terms
+                    self.logger.debug(f"Computing pairs between old and new xi-terms with at most {required_order} unique members. Requiring identical instances: {self.require_identical_instances_on_both_sides}. Requiring symmetry.")
                     c1 = compute_xi_term_pairs_with_at_most_unique_members(self.new_xi_terms, relevant_old_terms, instances_must_match=self.require_identical_instances_on_both_sides, unique_members=required_order, symmetric=True)
                         
                     # second case: the new ensemble member occurs in both xi-terms
+                    self.logger.debug(f"Computing pairs between new xi-terms with at most {required_order} unique members. Requiring identical instances: {self.require_identical_instances_on_both_sides}. Not requiring symmetry.")
                     c2 = compute_xi_term_pairs_with_at_most_unique_members(self.new_xi_terms, self.new_xi_terms, instances_must_match=self.require_identical_instances_on_both_sides, unique_members=required_order, symmetric=False)
                         
                     # merge everything
@@ -779,6 +781,7 @@ class DynamicCovUpdater:
         
         # otherwise, we need to sample the pairs from the new xi terms
         else:
+            raise Exception()
             self.logger.debug(f"Updating covariance estimates for case {case} based on {self.upper_bound_for_new_xi_pairs} samples of new xi pairs.")
             if case == 0:
                 df_case = self.sample_xi_term_pairs_between_existing_and_new_terms(same_in_left=True, same_in_right=True, first_shared=True)

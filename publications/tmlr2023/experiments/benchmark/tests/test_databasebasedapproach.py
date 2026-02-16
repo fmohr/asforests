@@ -11,7 +11,7 @@ from experiments.benchmark._util import get_unique_prediction_matrices
 
 from experiments.benchmark.tests.util import ApproachTestClass, ProblemInstanceWrapperForTesting
 
-import itertools as it
+import time
 
 import logging
 
@@ -452,3 +452,43 @@ class TestDatabaseBasedApproach(ApproachTestClass):
                 else:
                     places = 6
                 self.assertAlmostEqual(true_var, pred_var, places=places, msg=f"Final variance prediciton for V[Z_{n},{t}] is not precise enough using {allowed_instances} samples.")
+
+    def test_estimate_velocity(self):
+
+        self.setUp(n_samples=64, num_different_ensemble_members=64)
+        
+        approach = DatabaseWiseApproach(
+            estimated_parameters="V[Z_nt]",
+            population_mode="stream",
+            random_state=0,
+            threshold_for_number_of_samples_to_exclude_param=10**7,
+            logger=approach_logger
+        )
+
+        round = 0
+        approach.reset()
+        approach.tell_ground_truth_labels(self.y_oh)
+        max_degrees_arbitrary = []
+        max_degrees_equal = []
+        runtimes = []
+        print(f"Starting run with a total of {len(self.matrices)} matrices.")
+        for pm in range(12):
+            round += 1
+            print(f"Starting round #{round}")
+            t_start = time.time()
+            if approach.epa.cov_updater_for_iid_case_arbitrary_instances is not None:
+                max_degrees_arbitrary.append(approach.epa.cov_updater_for_iid_case_arbitrary_instances.get_highest_order_of_member_combinations_required())
+            if approach.epa.cov_updater_for_iid_case_arbitrary_instances is not None:
+                max_degrees_equal.append(approach.epa.cov_updater_for_iid_case_equal_instances.get_highest_order_of_member_combinations_required())
+            approach.receive_predictions_of_new_ensemble_member(pm)
+            t_end = time.time()
+            runtime =  t_end - t_start
+            print(f"Finished round #{round} after {runtime}s")
+            runtimes.append(runtime)
+        
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.plot(runtimes)
+        ax.plot(max_degrees_arbitrary)
+        ax.plot(max_degrees_equal)
+        plt.show()

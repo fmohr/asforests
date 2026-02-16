@@ -122,7 +122,9 @@ class TheoremBasedApproach(Approach, ABC):
     def get_xi_cov_coefficients_for_iid_scenario(self, t):
         c1 = self.get_xi_cov_coefficients_for_conditional_scenario(t)
         c2 = c1
-        return np.concatenate([c1, c2], axis=0)
+        c = np.concatenate([c1, c2], axis=0)
+        c[10] = c[11] = c[13] = 0 # by theory, we know that these coefficients must be 0
+        return c
 
     def estimate_performance_mean_in_iid_setup(self, t):
         t = np.asarray(t).reshape(-1)
