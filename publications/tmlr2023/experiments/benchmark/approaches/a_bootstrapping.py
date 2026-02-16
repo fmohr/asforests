@@ -10,14 +10,36 @@ class BootstrappingApproach(Approach):
     def __init__(self, bootstrap_size, num_resamples, sample_in_instance_space=True, use_caching=True, **kwargs):
         super().__init__(**kwargs)
         self.prediction_matrices = None
-        self.bootstrap_size = bootstrap_size
-        self.num_resamples = num_resamples
+        self._bootstrap_size = bootstrap_size
+        self._num_resamples = num_resamples
         self.sample_in_instance_space = sample_in_instance_space
         self.use_caching = use_caching
+        assert self._num_resamples >= 1, "num_resamples must be at least 1"
+        assert self._bootstrap_size >= 2, "bootstrap_size must be at least 2"
         
         # state variables
         self._means_iid = self._vars_iid = None
         self._means_cond = self._vars_cond = None
+    
+    @property
+    def num_resamples(self):
+        return self._num_resamples
+    
+    @num_resamples.setter
+    def num_resamples(self, val):
+        if val < 1:
+            raise ValueError(f"num_resamples must be at least 1")
+        self._num_resamples = val
+
+    @property
+    def bootstrap_size(self):
+        return self._bootstrap_size
+    
+    @num_resamples.setter
+    def bootstrap_size(self, val):
+        if val < 1:
+            raise ValueError(f"bootstrap_size must be at least 2")
+        self._bootstrap_size = val
     
     def reset(self):
         super().reset()
@@ -111,7 +133,8 @@ class BootstrappingApproach(Approach):
         self.logger.info(f"Finished updating estimates with bootstrapping.")
 
     def _update_conditional_estimates(self, t):
-        self.logger.info(f"Starting updating estimates with bootstrapping.")
+        self.logger.info(f"Starting updating estimates with bootstrapping using {self.num_resamples} resamples.")
+        assert self.num_resamples > 0, f"Cannot do bootstrapping without at least one re-sample. {self.num_resamples}"
         t = np.asarray(t).reshape(-1)
 
         # initialize mean and var dictionaries if necessary
@@ -151,6 +174,10 @@ class BootstrappingApproach(Approach):
             means.append(means_for_round)
             variances.append(vars_for_round)
         
+        # sanity check
+        assert len(means) > 0, "No means defined"
+        assert len(variances) > 0, "No variances defined"
+
         for _t, mean_mean, mean_var in zip(t, np.mean(means, axis=0).reshape(t.shape[0]), np.mean(variances, axis=0).reshape(t.shape[0])):
             self._means_cond[_t] = mean_mean
             self._vars_cond[_t] = mean_var

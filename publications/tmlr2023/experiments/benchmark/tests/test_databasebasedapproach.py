@@ -29,12 +29,12 @@ logger.addHandler(ch)
 logger.setLevel(logging.DEBUG)
 
 # configure logger for tester
-approach_logger = logging.getLogger("tested_approach")
+approach_logger = logging.getLogger("tested_approach.database_approach")
 approach_logger.handlers.clear()
 approach_logger.addHandler(ch)
 approach_logger.setLevel(logging.DEBUG)
 
-epa_logger = logging.getLogger("tested_approach.epa")
+epa_logger = logging.getLogger("tested_approach.database_approach.epa")
 epa_logger.handlers.clear()
 #epa_logger.addHandler(ch)
 epa_logger.setLevel(logging.DEBUG)
@@ -486,9 +486,9 @@ class TestDatabaseBasedApproach(ApproachTestClass):
             print(f"Finished round #{round} after {runtime}s")
             runtimes.append(runtime)
         
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        ax.plot(runtimes)
-        ax.plot(max_degrees_arbitrary)
-        ax.plot(max_degrees_equal)
-        plt.show()
+        # import matplotlib.pyplot as plt
+        # fig, ax = plt.subplots()
+        # ax.plot(runtimes)
+        # ax.plot(max_degrees_arbitrary)
+        # ax.plot(max_degrees_equal)
+        # plt.show()

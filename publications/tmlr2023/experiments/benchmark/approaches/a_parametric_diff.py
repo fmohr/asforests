@@ -32,6 +32,7 @@ class ParametricDifferenceModelApproach(Approach):
         self.show_progress = show_progress
 
         # state variables
+        self.deviation_matrices = None
         self._sample_of_ensemble_performances_iid = None
         self._sample_of_ensemble_performances_cond = None
         self._p_mean_iid = None
@@ -48,6 +49,11 @@ class ParametricDifferenceModelApproach(Approach):
         self._p_mean_cond = self._p_cvar_cond = self._p_iidvar = None
 
     def receive_predictions_of_new_ensemble_member(self, prediction_matrix):
+        if self.deviation_matrices is None:
+            raise ValueError(f"Approach has not been properly set up. Call `reset` before running it.")
+        if self.y_oh is None:
+            raise ValueError(f"Approach has not been properly set up. Call `tell_ground_truth_labels` before running it.")
+
         self.deviation_matrices.append(prediction_matrix - self.y_oh)
         self._sample_of_ensemble_performances = None
         self._p_mean_cond = self._p_mean_iid = self._p_cvar_cond = self._p_iidvar = None
@@ -196,7 +202,7 @@ class ParametricDifferenceModelApproach(Approach):
         # estimate parameters for mean
         self.logger.info(f"Now fitting a model with {len(targets)} data points.")
         X = np.column_stack((np.ones_like(sizes), 1 / np.array(sizes), 1 / np.array(sizes)**2, 1 / np.array(sizes)**3))
-        self.model_v_cond = Ridge(alpha=0.0)
+        self.model_v_cond = Ridge(alpha=0.001)
         self.model_v_cond.fit(X, targets, sample_weight=sizes)#1 / (targets**2 + 10**-10))
         self.logger.info(f"Model for parameters of V[Z_nt|D_val] ready.")
 
@@ -223,7 +229,7 @@ class ParametricDifferenceModelApproach(Approach):
         # estimate parameters for mean
         self.logger.info(f"Now fitting a model with {len(targets)} datapoints.")
         X = np.column_stack((1 / vals_n, 1 / (vals_n * vals_t), 1 / (vals_n * vals_t**2), 1 / (vals_n * vals_t**3), 1 / vals_t, 1 / vals_t**2, 1 / vals_t**3))
-        self.model_v_iid = Ridge(alpha=0.0)
+        self.model_v_iid = Ridge(alpha=0.001)
         self.model_v_iid.fit(X, targets)#, sample_weight=vals_t)
         self.logger.info("Successfully fitted model for the variance.")
 

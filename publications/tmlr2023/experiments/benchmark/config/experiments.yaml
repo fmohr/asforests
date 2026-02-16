@@ -11,7 +11,7 @@ PY_EXPERIMENTER:
         method:
           type: STR
           #values: ["direct-4", "direct-5", "direct-6", "direct-7", "bootstrapping-1-10", "bootstrapping-10-10", "bootstrapping-1-100", "bootstrapping-10-100", "bootstrapping-100-100"]
-          values: ["direct-4", "direct-5", "direct-6", "direct-7", "bootstrapping-10-10"]
+          values: ["direct-4", "direct-5", "direct-6", "direct-7", "bootstrapping-10-10", "parametric-10", "parametric-100", "parametric-1000"]
 
         openmlid:
           type: INT

@@ -27,6 +27,7 @@ logger.handlers.clear()
 logger.addHandler(ch)
 logger.setLevel(logging.DEBUG)
 
+
 def get_standard_benchmark(**kwargs):
     wrapper = ProblemInstanceWrapperForTesting(ensemble_seed=0)
 
@@ -78,7 +79,7 @@ class ProblemInstanceWrapperForTesting:
             training_instances_per_class=0.1,
             validation_size=20,
             num_possible_ensemble_members=5,
-            num_samples_allowed_for_ground_truth_approximation=10**2,
+            num_samples_allowed_for_ground_truth_approximation=10**7,
             n_checkpoints=[2],
             t_checkpoints=[10, 100, 1000]
         ):
@@ -247,13 +248,13 @@ class ApproachTestClass(TestCase):
 
                 # test that estimate for E[Z_nt] is at least somewhere close to the real value (exact estimate impossible since approach has only validation data)
                 pred_mean = a.estimate_performance_mean_in_iid_setup(t=[t])[0]
+                assert np.isclose(pred_mean_from_array, pred_mean, atol=10**-16), f"Estimating mean for {t=} should be identical to an extracted mean estimate from a call with t={wrapper.t_checkpoints}"
                 assert np.abs(wrapper.pi.means_iid[i] - pred_mean) < 0.1, f"Estimates for E[Z_nt] by {a.__class__.__name__} are off the mark. Expected {wrapper.pi.means_iid[j]} but saw {pred_mean} for {t=}"
-                self.assertEqual(pred_mean_from_array, pred_mean)
 
                 # test that estimate for sqrt(V[Z_nt]) is at least somewhere close to the real value (exact estimate impossible since approach has only validation data)
                 pred_var = a.estimate_performance_var_in_iid_setup(n=n, t=t)[0, 0]
+                assert np.isclose(pred_var_for_t_n_from_array, pred_var, atol=10**-16), f"Estimating var for {n=} and {t=} should be identical to an extracted var estimate from a call with n={wrapper.n_checkpoints} and t={wrapper.t_checkpoints}"
                 assert np.abs(wrapper.pi.vars_iid[i, j] - pred_var) < 0.1, f"Estimates for V[Z_nt] by {a.__class__.__name__} are off the mark. Expected {wrapper.pi.vars_iid[i, j]} but saw {pred_var} for {t=}"
-                self.assertEqual(pred_var_for_t_n_from_array, pred_var)
     
     def adjust_approach_object_for_evaluation_on_conditional_convergence_test_checkpoint(self, approach, checkpoint):
         pass

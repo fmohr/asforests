@@ -24,8 +24,6 @@ import numpy as np
 import itertools as it
 
 
-ACCEPTED_APPROACHES = ["bootstrapping", "databaseperparameter", "parametricmodel"]
-
 def run_experiment(keyfields: dict, result_processor, custom_config):
 
     # define stream handler
@@ -95,6 +93,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
         # get approach object
         if method_name.startswith("parametric"):
+            _, num_simulated_ensembles = method_name.split("-")
+            num_simulated_ensembles = int(num_simulated_ensembles)
             approach = ParametricDifferenceModelApproach(
                 random_state=0,
                 estimated_parameters=[captured_parameter],
@@ -191,14 +191,14 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    if False:
+    if True:
         run_experiment({
             "openmlid": 1049,
             "num_possible_ensemble_members": 64,
             "validation_instances": 64,
             "data_seed": 0,
             "ensemble_sequence_seed": 1,
-            "method": "bootstrapping-10-10"
+            "method": "parametric-10"
         }, None, None)
         exit(0)
 

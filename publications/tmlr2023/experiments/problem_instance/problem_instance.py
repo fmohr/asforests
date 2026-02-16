@@ -353,7 +353,8 @@ class ProblemInstance:
         # iid case
         self.approach_for_gt_iid_case = DatabaseWiseApproach(
             estimated_parameters=["E[Z_nt]", "V[Z_nt]"],
-            threshold_for_number_of_samples_to_exclude_param=self.num_samples_allowed_for_ground_truth_approximation
+            threshold_for_number_of_samples_to_exclude_param=self.num_samples_allowed_for_ground_truth_approximation,
+            logger=logging.getLogger(f"{self.logger.name}.exact_approach")
         )
         self.approach_for_gt_iid_case.reset()
         self.approach_for_gt_iid_case.tell_ground_truth_labels(self.y_oh)
@@ -369,7 +370,8 @@ class ProblemInstance:
         # conditional case
         self.approach_for_gt_conditional_case = DatabaseWiseApproach(
             estimated_parameters=["E[Z_nt|D_val]", "V[Z_nt|D_val]"],
-            threshold_for_number_of_samples_to_exclude_param=self.num_samples_allowed_for_ground_truth_approximation
+            threshold_for_number_of_samples_to_exclude_param=self.num_samples_allowed_for_ground_truth_approximation,
+            logger=logging.getLogger(f"{self.logger.name}.exact_approach")
         )
         self.approach_for_gt_conditional_case.reset()
         self.approach_for_gt_conditional_case.tell_ground_truth_labels(self.y_oh_val)
