@@ -109,8 +109,10 @@ class GroundTruthComputer:
                     cache = list(reader)
                 self.logger.info(f"Read in {len(cache)} entries from {cachfile_path}.")
             else:
+                self.logger.info(f"Cache file {cachefile} does not exist. Starting from scratch.")
                 cache = []
         else:
+            self.logger.info("Now cache file given, starting from scratch.")
             cache = None
 
         # output task and current memory consumption
@@ -216,9 +218,10 @@ class GroundTruthComputer:
                     cache = list(reader)
                 self.logger.info(f"Read in {len(cache)} entries from {cachfile_path}.")
             else:
+                self.logger.info(f"Cache file {cachefile} does not exist. Starting from scratch.")
                 cache = []
         else:
-            cache = None
+            self.logger.info("Now cache file given, starting from scratch.")
 
         # output task and current memory consumption
         process = psutil.Process(os.getpid())
