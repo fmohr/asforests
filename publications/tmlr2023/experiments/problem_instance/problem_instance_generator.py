@@ -153,7 +153,7 @@ if __name__ == "__main__":
     #     "validation_instances": 2
     # }, result_processor=None, custom_config=None)
     # exit(0)
-
+    print(f"Received the following command line arguments: {sys.argv}")
     if len(sys.argv) != 4:
         raise ValueError(f"Please specify exactly three arguments (the job name, the number of cores to be used, the time offset).")
     name = sys.argv[1]
