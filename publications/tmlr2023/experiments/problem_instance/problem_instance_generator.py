@@ -160,7 +160,9 @@ if __name__ == "__main__":
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**5
 
-    time.sleep(np.random.randint(0, 300))
+    sleep_time = np.random.randint(0, 120)
+    print(f"Sleeping for {sleep_time}s to avoid potential issues with multiple jobs starting at the same time.")
+    time.sleep(sleep_time)
 
     pe = PyExperimenter(
         name=name,
