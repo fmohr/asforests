@@ -153,17 +153,20 @@ if __name__ == "__main__":
     #     "validation_instances": 2
     # }, result_processor=None, custom_config=None)
     # exit(0)
-    print(f"Received the following command line arguments: {sys.argv}")
-    if len(sys.argv) != 4:
-        raise ValueError(f"Please specify exactly three arguments (the job name, the number of cores to be used, the time offset).")
+
+    if len(sys.argv) != 3:
+        raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**5
-    TIME_OFFSET = int(sys.argv[3])
 
-    sleep_time = 5 * TIME_OFFSET
-    print(f"Sleeping for {sleep_time}s to avoid potential issues with multiple jobs starting at the same time.")
-    time.sleep(sleep_time)
+    if "SLURM_PROCID" in os.environ:
+        rank = int(os.environ["SLURM_PROCID"])
+        sleep_time = 5 * rank
+        print(f"Sleeping for {sleep_time}s to avoid potential issues with multiple jobs starting at the same time.")
+        time.sleep(sleep_time)
+    else:
+        print("Not running in a SLURM environment, so not sleeping.")
 
     pe = PyExperimenter(
         name=name,
