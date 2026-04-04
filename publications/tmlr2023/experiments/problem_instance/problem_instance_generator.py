@@ -154,13 +154,14 @@ if __name__ == "__main__":
     # }, result_processor=None, custom_config=None)
     # exit(0)
 
-    if len(sys.argv) != 3:
-        raise ValueError(f"Please specify exactly two arguments (the job name and the number of cores to be used).")
+    if len(sys.argv) != 4:
+        raise ValueError(f"Please specify exactly three arguments (the job name, the number of cores to be used, the time offset).")
     name = sys.argv[1]
     N_JOBS = int(sys.argv[2])
     NUM_SAMPLES = 10**5
+    TIME_OFFSET = int(sys.argv[3])
 
-    sleep_time = np.random.randint(0, 600)
+    sleep_time = 5 * TIME_OFFSET
     print(f"Sleeping for {sleep_time}s to avoid potential issues with multiple jobs starting at the same time.")
     time.sleep(sleep_time)
 
