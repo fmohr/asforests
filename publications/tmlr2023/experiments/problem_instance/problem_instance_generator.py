@@ -162,7 +162,7 @@ if __name__ == "__main__":
 
     if "SLURM_PROCID" in os.environ:
         rank = int(os.environ["SLURM_PROCID"])
-        sleep_time = 5 * rank
+        sleep_time = 10 * rank
         print(f"Sleeping for {sleep_time}s to avoid potential issues with multiple jobs starting at the same time.")
         time.sleep(sleep_time)
     else:
