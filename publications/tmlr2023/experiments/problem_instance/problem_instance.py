@@ -4,6 +4,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
 
+import hashlib
 import json, jsonlines
 import pandas as pd
 import numpy as np
@@ -324,16 +325,20 @@ class ProblemInstance:
                 "max_depth": 1,
                 "max_features": 1
             },
-            logger=self.logger
+            logger=self.logger,
+            cache_files=(
+                f"tmp/{self.data_description}/prediction_matrices_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.npy",
+                f"tmp/{self.data_description}/classes_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.json"
+            )
         )
 
         # memorize prediction matrices
         indices = [classes.index(i) if i in classes else -1 for i in self.y] # the -1 is for the last row, where all one-hot-values are 0
         class_matrix = np.concatenate([np.eye(len(classes)), np.zeros((1, len(classes)))])
-        assert (len(classes) + 1, len(classes)) == class_matrix.shape
+        assert (len(classes) + 1, len(classes)) == class_matrix.shape, f"Expected shape {(len(classes) + 1, len(classes))} for class matrix but got {class_matrix.shape}"
         self._y_oh = class_matrix[indices]
         self._predictions = np.array(prediction_matrices[:self.num_possible_ensemble_members])
-        assert self._predictions.shape == (self.num_possible_ensemble_members, self.X.shape[0], self._y_oh.shape[1])
+        assert self._predictions.shape == (self.num_possible_ensemble_members, self.X.shape[0], self._y_oh.shape[1]), f"Expected shape {(self.num_possible_ensemble_members, self.X.shape[0], self._y_oh.shape[1])} for predictions but got {self._predictions.shape}"
         if np.any(np.isnan(self._predictions)):
             raise ValueError(f"predictions have nan entries: {self._predictions}")
         self._deviations = self._predictions - self._y_oh
