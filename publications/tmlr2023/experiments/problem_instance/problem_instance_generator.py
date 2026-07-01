@@ -59,21 +59,36 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     num_samples_allowed_for_ground_truth_approximation = NUM_SAMPLES
     n_jobs=N_JOBS
 
+    pi_file = Path(f"tmp/{openmlid}/pi_{data_seed}_{num_possible_ensemble_members}_{validation_instances}.jsonl")
+
     # get problem instance with 80% data out of sample (5% for training and a constant number for validation per class)
-    pi = ProblemInstance(
-        data_description=openmlid,
-        is_classification=True,
-        data_seed=data_seed,
-        ensemble_seed=0,
-        num_possible_ensemble_members=num_possible_ensemble_members,
-        training_instances_per_class=0.05,
-        validation_size=validation_instances,
-        num_samples_allowed_for_ground_truth_approximation=num_samples_allowed_for_ground_truth_approximation,
-        n_checkpoints=n_checkpoints,
-        t_checkpoints=t_checkpoints,
-        logger=logger
-    )
-    assert pi.predictions_val.shape[1] == validation_instances, f"Expected {validation_instances} validation instances, but ProblemInstance has {len(pi.predictions_val)}"
+    if not pi_file.exists():
+        logger.info("Creating ProblemInstance object from scratch.")
+        pi = ProblemInstance(
+            data_description=openmlid,
+            is_classification=True,
+            data_seed=data_seed,
+            ensemble_seed=0,
+            num_possible_ensemble_members=num_possible_ensemble_members,
+            training_instances_per_class=0.05,
+            validation_size=validation_instances,
+            num_samples_allowed_for_ground_truth_approximation=num_samples_allowed_for_ground_truth_approximation,
+            n_checkpoints=n_checkpoints,
+            t_checkpoints=t_checkpoints,
+            logger=logger
+        )
+        
+        # access predictions so that they are computed and serialized
+        assert pi.deviations_val.shape[1] == validation_instances, f"Expected {validation_instances} validation instances, but ProblemInstance has {len(pi.deviations_val)}"
+        logger.info("Serializing existing ProblemInstance file.")
+        pi.serialize(pi_file)
+    else:
+        logger.info("Unserializing existing ProblemInstance file.")
+        pi = ProblemInstance.unserialize(pi_file)
+        logger.info("ProblemInstance unserialized. Now checking it.")
+
+    assert pi.deviations_val.shape[1] == validation_instances, f"Expected {validation_instances} validation instances, but ProblemInstance has {len(pi.deviations_val)}"
+    logger.info("Done, ProblemInstance is coherent with experiment setting.")
 
 
     # get file
@@ -144,13 +159,13 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
-    # N_JOBS = 1
-    # NUM_SAMPLES = 10**5
+    N_JOBS = 1
+    NUM_SAMPLES = 10**5
     # run_experiment(keyfields={
-    #     "openmlid": 41159,
+    #     "openmlid": 42746,
     #     "num_possible_ensemble_members": 8,
     #     "data_seed": 2,
-    #     "validation_instances": 2
+    #     "validation_instances": 256
     # }, result_processor=None, custom_config=None)
     # exit(0)
 
