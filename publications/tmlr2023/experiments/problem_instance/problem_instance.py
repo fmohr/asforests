@@ -75,6 +75,11 @@ class ProblemInstance:
             assert len(self._predictions.shape) == 3, f"Predictions should have dimensionality 3 but has dimensionality {len(self._predictions.shape)}"
     
     @classmethod
+    def unserialize(cls, path_to_file):    
+        with open(path_to_file, "r") as reader:
+            return ProblemInstance.from_dict(json.load(reader))
+
+    @classmethod
     def load_from_instance_file(cls, openmlid, data_seed, num_possible_ensemble_members, validation_instances):
 
         folder = pathlib.Path(__file__).parent
@@ -243,10 +248,21 @@ class ProblemInstance:
                     download_features_meta_data=False
                 )
                 df = ds.get_data()[0]
-                self.logger.info(f"Done, separating X and y and making it a dense array.")
 
-                # prepare data with label encoding for categorical attributes
-                self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
+                has_sparse_columns = any(
+                    pd.api.types.is_sparse(dtype)
+                    for dtype in df.dtypes
+                )
+
+                if has_sparse_columns:
+                    self.logger.info(f"Done, separating X and y, maintaining the sparse nature of X.")
+                    self._X = df.drop(columns=[ds.default_target_attribute]).sparse.to_coo().tocsr()
+
+                else:
+                    self.logger.info(f"Done, separating X and y and making it a dense array.")
+
+                    # prepare data with label encoding for categorical attributes
+                    self._X = np.array(df.drop(columns=[ds.default_target_attribute]).values)
                 self._y = np.array(df[ds.default_target_attribute].values)
                 self.logger.info(f"Data of shape {self._X.shape} ready.")
             elif type(self.data_description) == tuple:
@@ -269,17 +285,24 @@ class ProblemInstance:
                 label_count[val] = np.count_nonzero(self._y == val)
 
         # partition the given data into train, validation, and out-of-sample data
-        self.logger.info(f"Label count: {label_count}")
+        num_classes = len(label_count)
+        self.logger.info(f"There are {num_classes} many labels. Occurrences per label: {label_count}")
         minority_class = min(list(label_count.keys()), key=label_count.get)
 
         # extract validation data
         rs_data = np.random.RandomState(self.data_seed)
         splitter_val = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size) if self.is_classification and self.validation_size >= len(label_count) else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=self.validation_size)
         validation_indices, rest_indices = next(splitter_val.split(self.X, self.y))
+        self.logger.info(f"Separated {len(validation_indices)} instances for validation. {len(rest_indices)} remain for training and OOS")
 
         # separate training and out-of-sample data from the rest that is not validation
         training_size_relative = self.training_instances_per_class / label_count[minority_class] if self.training_instances_per_class >= 1 else self.training_instances_per_class
-        self.logger.info(f"Using {np.round(training_size_relative * 100, 2)}% of the  data for training")
+        if np.floor(training_size_relative * len(rest_indices) < num_classes):
+            training_size_relative = num_classes / len(rest_indices)
+            self.logger.warning(f"Less instances than classes if we used 5%. So we adjust the training portion to {(training_size_relative * 100):.2f}%")
+        else:
+            self.logger.info(f"Using {np.round(training_size_relative * 100, 2)}% of the  data for training")
+
         splitter_rest = StratifiedShuffleSplit(n_splits=1, random_state=rs_data, train_size=training_size_relative) if self.is_classification else ShuffleSplit(n_splits=1, random_state=rs_data, train_size=training_size_relative)
         train_indices, oos_indices = next(splitter_rest.split(self.X[rest_indices], self.y[rest_indices]))
         train_indices = rest_indices[train_indices]
@@ -314,9 +337,18 @@ class ProblemInstance:
         t_start = time()
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
+        cache_files = (
+                f"tmp/{self.data_description}/prediction_matrices_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.npy",
+                f"tmp/{self.data_description}/classes_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.json"
+            )
+        all_cache_files_available = all([pathlib.Path(f).exists() for f in cache_files])
+        if all_cache_files_available:
+            self.logger.info("All prediction matrix cache files available, not loading data.")
+        else:
+            self.logger.info("At least one prediction matrix cache file is missing, so loading the data.")
         prediction_matrices, classes = get_unique_prediction_matrices(
-            X=self.X,
-            y=self.y,
+            X=self.X if not all_cache_files_available else None,
+            y=self.y if not all_cache_files_available else None,
             train_indices=self._indices_train,
             seed=self.ensemble_seed,
             num_matrices=self.num_possible_ensemble_members,
@@ -326,10 +358,7 @@ class ProblemInstance:
                 "max_features": 1
             },
             logger=self.logger,
-            cache_files=(
-                f"tmp/{self.data_description}/prediction_matrices_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.npy",
-                f"tmp/{self.data_description}/classes_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.json"
-            )
+            cache_files=cache_files
         )
 
         # memorize prediction matrices
@@ -454,6 +483,12 @@ class ProblemInstance:
             "t_checkpoints": self.t_checkpoints.tolist() if self.t_checkpoints is not None else None
         }
         
+        if self._indices_train is not None:
+            out["_indices_train"] = self._indices_train.tolist()
+        if self._indices_val is not None:
+            out["_indices_val"] = self._indices_val.tolist()
+        if self._indices_oos is not None:
+            out["_indices_oos"] = self._indices_oos.tolist()
         if self._y_oh is not None:
             out["y_oh"] = self.y_oh.tolist()
         if self._deviations is not None:
@@ -472,10 +507,26 @@ class ProblemInstance:
     def from_dict(cls, dict):
         if "data_description" in dict and type(dict["data_description"]) == list:
             dict["data_description"] = tuple([np.array(d) for d in dict["data_description"]])
-        for field in ["n_checkpoints", "t_checkpoints", "true_means_for_iid_case", "true_vars_for_iid_case", "true_means_for_cond_case", "true_vars_for_cond_case"]:
+        for field in ["n_checkpoints", "t_checkpoints", "true_means_for_iid_case", "true_vars_for_iid_case", "true_means_for_cond_case", "true_vars_for_cond_case", "deviations"]:
             if field in dict:
                 dict[field] = np.array(dict[field])
-        return ProblemInstance(**dict)
+        
+        lazy_dict = {}
+        for k, v in dict.items():
+            if k.startswith("_"):
+                lazy_dict[k] = v
+        for k in lazy_dict:
+            del dict[k]
+        
+        pi = ProblemInstance(**dict)
+        for k, v in lazy_dict.items():
+            setattr(pi, k, v)
+        return pi
+    
+    def serialize(self, path_to_file):
+        pathlib.Path(path_to_file).parent.mkdir(exist_ok=True, parents=True)
+        with open(path_to_file, "w") as f:
+            json.dump(self.to_dict(), f)
     
     def copy(self):
         return ProblemInstance.from_dict(json.loads(json.dumps(self.to_dict())))

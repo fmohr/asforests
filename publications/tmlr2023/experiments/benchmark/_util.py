@@ -1,8 +1,8 @@
-from sklearn.ensemble import RandomForestClassifier
 from pathlib import Path
-import hashlib
-import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 import json
+import numpy as np
+
 
 def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_tries=10, logger=None, rf_kwargs={}, cache_files=None):
     """
@@ -55,6 +55,7 @@ def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_
                 classes = _classes
             
             # update deviation metrices
+            logger.info(f"Generating prediction matrices for {X.shape[0]} instances.")
             size_before = len(prediction_matrices)
             for prediction_matrix in [t.predict_proba(X) for t in ensemble_members]:
                 #pm_as_str = str(prediction_matrix)

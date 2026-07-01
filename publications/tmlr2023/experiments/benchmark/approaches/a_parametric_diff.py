@@ -119,6 +119,7 @@ class ParametricDifferenceModelApproach(Approach):
         max_anchor_for_n = 32
         schedule_for_t = self._get_schedule_for_max_anchor(max_anchor_for_t)
         schedule_for_n = self._get_schedule_for_max_anchor(max_anchor_for_n)
+        print(len(schedule_for_n) * len(schedule_for_t))
 
         # compute data for parametric learning problem
         num_samples_per_case = self.num_simulated_ensembles / len(schedule_for_t)
