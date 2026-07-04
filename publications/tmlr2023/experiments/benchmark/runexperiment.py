@@ -123,10 +123,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                 threshold_for_number_of_samples_to_exclude_param=10**exp_for_threshold_for_number_of_samples_to_exclude_param,
                 logger=a_logger
             )
-        else:
-            raise ValueError(f"Unknown method {method_name}.")
-        
-        # register the approach for this parameter
+        else:_get_schedule_for_max_anchor
         approaches = {
             f"{captured_parameter}::{method_name}": approach
         }
@@ -191,7 +188,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    if False:
+    if True:
         run_experiment({
             "openmlid": 1049,
             "num_possible_ensemble_members": 64,
