@@ -49,9 +49,12 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     path_gz = Path(filename_gz)
     if path_gz.exists():
         logger.info(
-            f"Ignoring experiment since file {filename_gz} exists already."
+            f"Ignoring experiment since file {path_gz.absolute} exists already."
         )
         return
+    logger.info(
+            f" Problem instance file {path_gz.absolute} does not exist, executing experiment."
+        )
 
     # core configuration
     n_checkpoints=np.array([2, 10, 100, 1000])
