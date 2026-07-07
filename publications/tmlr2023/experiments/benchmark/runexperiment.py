@@ -49,7 +49,10 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     bm_logger = logging.getLogger("benchmark")
     bm_logger.handlers.clear()
     bm_logger.addHandler(ch)
-    bm_logger.setLevel(logging.WARNING)           
+    bm_logger.setLevel(logging.WARNING)
+
+    logger.info(f"Starting experiment for approach {method_name} on ({openmlid=}, {data_seed=}, {ensemble_sequence_seed=}, {n=}, {t=}, {num_possible_ensemble_members=},  {validation_size=}).")
+
 
     # make sure that we have the results folder
     folder = f"results"
@@ -78,6 +81,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     assert pi._true_vars_for_cond_case is not None
     assert pi._true_vars_for_cond_case.shape == (len(pi.t_checkpoints), )
     logger.info(f"Successfully loaded problem instance {pi}")
+    pi.logger = logger
 
     # configure ensemble sequence seed
     ensemble_sequence_seed = int(keyfields["ensemble_sequence_seed"])
@@ -175,7 +179,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             )
 
             # run benchmark 
-            logger.info(f"Computing ground truth")
+            logger.info(f"Resetting benchmark, including extraction of ground truth.")
             b.reset(approaches)
             max_budget = 10**2
             logger.info(f"Done. Now obtaining estimates for budgets b from 1 to {max_budget}")
@@ -186,6 +190,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             logger.info(f"Done, writing results to {gz_filename}.")
             with gzip.open(gz_filename, "wt", encoding="utf-8") as f:
                 f.write(b.result_storage.serialize())
+    
+    logger.info(f"Finished experiment for approach {method_name} on ({openmlid=}, {data_seed=}, {ensemble_sequence_seed=}, {n=}, {t=}, {num_possible_ensemble_members=},  {validation_size=}).")
 
 
 if __name__ == "__main__":

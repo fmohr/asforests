@@ -315,7 +315,6 @@ class ProblemInstance:
         else:
             assert self.validation_size == len(set(validation_indices)), f"There are {len(set(validation_indices))} instances marked for validation, but the parameter is {self.validation_size}"
         self._indices_train = train_indices
-        print(self._indices_train)
         self._indices_val = validation_indices
         self._indices_oos = oos_indices
         self.logger.info(f"Created split. {len(self._indices_train)}/{len(self._indices_val)}/{len(self._indices_oos)} instances are in train/val/oos folds respectively.")
@@ -339,8 +338,8 @@ class ProblemInstance:
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
         cache_files = (
-                f"tmp/{self.data_description}/prediction_matrices_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.npy",
-                f"tmp/{self.data_description}/classes_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}.json"
+                f"tmp/{self.data_description}/prediction_matrices_{self.data_seed}_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}_{self.validation_size}.npy",
+                f"tmp/{self.data_description}/classes_{self.data_seed}_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}_{self.validation_size}.json"
             )
         all_cache_files_available = all([pathlib.Path(f).exists() for f in cache_files])
         if all_cache_files_available:
