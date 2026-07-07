@@ -22,6 +22,7 @@ import sys
 import time
 import numpy as np
 import itertools as it
+import os
 
 
 def run_experiment(keyfields: dict, result_processor, custom_config):
@@ -93,8 +94,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
         # get approach object
         if method_name.startswith("parametric"):
-            _, num_simulated_ensembles = method_name.split("-")
-            num_simulated_ensembles = int(num_simulated_ensembles)
+            _, exp_for_threshold_number_of_datapoints = method_name.split("-")
+            num_simulated_ensembles = int(10**int(exp_for_threshold_number_of_datapoints))
             approach = ParametricDifferenceModelApproach(
                 random_state=0,
                 estimated_parameters=[captured_parameter],
@@ -123,7 +124,8 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                 threshold_for_number_of_samples_to_exclude_param=10**exp_for_threshold_for_number_of_samples_to_exclude_param,
                 logger=a_logger
             )
-        else:_get_schedule_for_max_anchor
+        else:
+            raise ValueError(f"Unknown method {method_name}")
         approaches = {
             f"{captured_parameter}::{method_name}": approach
         }
@@ -188,20 +190,25 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    if True:
-        run_experiment({
-            "openmlid": 1049,
-            "num_possible_ensemble_members": 64,
-            "validation_instances": 64,
-            "data_seed": 0,
-            "ensemble_sequence_seed": 1,
-            "method": "parametric-10"
-        }, None, None)
-        exit(0)
+    # if True:
+    #     run_experiment({
+    #         "openmlid": 1049,
+    #         "num_possible_ensemble_members": 64,
+    #         "validation_instances": 64,
+    #         "data_seed": 0,
+    #         "ensemble_sequence_seed": 1,
+    #         "method": "parametric-3"
+    #     }, None, None)
+    #     exit(0)
 
-    sleep_time = np.random.rand() * 120
-    print(f"Sleeping {sleep_time}s")
-    time.sleep(sleep_time)
+    if "SLURM_PROCID" in os.environ:
+        rank = int(os.environ["SLURM_PROCID"])
+        sleep_time = 10 * rank
+        print(f"Sleeping for {sleep_time}s to avoid potential issues with multiple jobs starting at the same time.")
+        time.sleep(sleep_time)
+    else:
+        print("Not running in a SLURM environment, so not sleeping.")
+
 
     pe = PyExperimenter(
         name="ensembles",

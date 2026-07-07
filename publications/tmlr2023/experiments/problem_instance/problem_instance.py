@@ -315,6 +315,7 @@ class ProblemInstance:
         else:
             assert self.validation_size == len(set(validation_indices)), f"There are {len(set(validation_indices))} instances marked for validation, but the parameter is {self.validation_size}"
         self._indices_train = train_indices
+        print(self._indices_train)
         self._indices_val = validation_indices
         self._indices_oos = oos_indices
         self.logger.info(f"Created split. {len(self._indices_train)}/{len(self._indices_val)}/{len(self._indices_oos)} instances are in train/val/oos folds respectively.")
@@ -507,7 +508,7 @@ class ProblemInstance:
     def from_dict(cls, dict):
         if "data_description" in dict and type(dict["data_description"]) == list:
             dict["data_description"] = tuple([np.array(d) for d in dict["data_description"]])
-        for field in ["n_checkpoints", "t_checkpoints", "true_means_for_iid_case", "true_vars_for_iid_case", "true_means_for_cond_case", "true_vars_for_cond_case", "deviations"]:
+        for field in ["_indices_train", "_indices_val",  "_indices_oos", "n_checkpoints", "t_checkpoints", "true_means_for_iid_case", "true_vars_for_iid_case", "true_means_for_cond_case", "true_vars_for_cond_case", "deviations"]:
             if field in dict:
                 dict[field] = np.array(dict[field])
         

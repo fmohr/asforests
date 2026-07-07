@@ -119,7 +119,6 @@ class ParametricDifferenceModelApproach(Approach):
         max_anchor_for_n = 32
         schedule_for_t = self._get_schedule_for_max_anchor(max_anchor_for_t)
         schedule_for_n = self._get_schedule_for_max_anchor(max_anchor_for_n)
-        print(len(schedule_for_n) * len(schedule_for_t))
 
         # compute data for parametric learning problem
         num_samples_per_case = self.num_simulated_ensembles / len(schedule_for_t)
@@ -161,6 +160,7 @@ class ParametricDifferenceModelApproach(Approach):
         
         # store the observed performances in the respective dataframe
         df = pd.DataFrame(data={"t": t_vals, "n": n_vals, "Z_nt": errors})
+        assert len(df) == self.num_simulated_ensembles, f"Database should have {self.num_simulated_ensembles} items but has {len(df)}"
         self.logger.info(f"Done. Database has {len(df)} entries.")
         if iid_data:
             self._sample_of_ensemble_performances_iid = df
