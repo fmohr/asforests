@@ -148,7 +148,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             filename = f"{folder_for_task}/{method_name}_{data_seed}_{ensemble_sequence_seed}_{num_possible_ensemble_members}_{validation_size}_{n}_{t}.json"
             gz_filename = f"{filename}.gz"
             if pathlib.Path(gz_filename).exists():
-                print(f"Skipping {method_name} on {openmlid} with seed {ensemble_sequence_seed} and n/t combo {n}/{t} since result file {gz_filename} already exists.")
+                logger.info(f"Skipping {method_name} on {openmlid} with seed {ensemble_sequence_seed} and n/t combo {n}/{t} since result file {gz_filename} already exists.")
                 continue
             logger.info(f"Starting evaluation of {captured_parameter}-estimates of {method_name} on {openmlid} with data seed {data_seed} and ensemble sequence seed {ensemble_sequence_seed} for {n=}, {t=}, {num_possible_ensemble_members} possible ensemble members, and {validation_size} validation instances.")
 
