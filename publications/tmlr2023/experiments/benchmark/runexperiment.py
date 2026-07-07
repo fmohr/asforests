@@ -51,7 +51,10 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     bm_logger.addHandler(ch)
     bm_logger.setLevel(logging.WARNING)
 
-    logger.info(f"Starting experiment for approach {method_name} on ({openmlid=}, {data_seed=}, {ensemble_sequence_seed=}, {n=}, {t=}, {num_possible_ensemble_members=},  {validation_size=}).")
+    info_str = ""
+    for k, v in keyfields.items():
+        info_str += f"\n\t{k}: {v}"
+    logger.info(f"Starting experiment with specification{info_str}")
 
 
     # make sure that we have the results folder
@@ -191,8 +194,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
             with gzip.open(gz_filename, "wt", encoding="utf-8") as f:
                 f.write(b.result_storage.serialize())
     
-    logger.info(f"Finished experiment for approach {method_name} on ({openmlid=}, {data_seed=}, {ensemble_sequence_seed=}, {n=}, {t=}, {num_possible_ensemble_members=},  {validation_size=}).")
-
+    logger.info(f"Finished experiment with specification{info_str}")
 
 if __name__ == "__main__":
 
