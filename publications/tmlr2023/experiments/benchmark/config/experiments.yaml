@@ -10,8 +10,8 @@ PY_EXPERIMENTER:
       keyfields:
         method:
           type: STR
-          #values: ["direct-4", "direct-5", "direct-6", "direct-7", "bootstrapping-1-10", "bootstrapping-10-10", "bootstrapping-1-100", "bootstrapping-10-100", "bootstrapping-100-100"]
-          values: ["direct-4", "direct-5", "direct-6", "direct-7", "bootstrapping-1-10", "bootstrapping-10-10", "bootstrapping-1-100", "bootstrapping-10-100", "bootstrapping-100-100", "parametric-3", "parametric-4", "parametric-5"]
+          values: ["direct-4", "bootstrapping-1-10", "parametric-3"]
+          #values: ["direct-4", "direct-5", "direct-6", "direct-7", "bootstrapping-1-10", "bootstrapping-10-10", "bootstrapping-1-100", "bootstrapping-10-100", "bootstrapping-100-100", "parametric-3", "parametric-4", "parametric-5"]
 
         openmlid:
           type: INT
