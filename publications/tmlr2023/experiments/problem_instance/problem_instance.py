@@ -337,15 +337,21 @@ class ProblemInstance:
         t_start = time()
 
         # compute 3D tensor with all deviations of all ensemble members on all data points
-        cache_files = (
-                f"tmp/{self.data_description}/prediction_matrices_{self.data_seed}_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}_{self.validation_size}.npy",
-                f"tmp/{self.data_description}/classes_{self.data_seed}_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}_{self.validation_size}.json"
-            )
-        all_cache_files_available = all([pathlib.Path(f).exists() for f in cache_files])
-        if all_cache_files_available:
-            self.logger.info("All prediction matrix cache files available, not loading data.")
+        if isinstance(self.data_description, int):
+            cache_files = (
+                    f"tmp/{self.data_description}/prediction_matrices_{self.data_seed}_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}_{self.validation_size}.npy",
+                    f"tmp/{self.data_description}/classes_{self.data_seed}_{hashlib.sha256(str(self._indices_train).encode('utf-8')).hexdigest()}_{self.ensemble_seed}_{self.num_possible_ensemble_members}_{self.validation_size}.json"
+                )
+            all_cache_files_available = all([pathlib.Path(f).exists() for f in cache_files])
+            if all_cache_files_available:
+                self.logger.info("All prediction matrix cache files available, not loading data.")
+            else:
+                self.logger.info("At least one prediction matrix cache file is missing, so loading the data.")
         else:
-            self.logger.info("At least one prediction matrix cache file is missing, so loading the data.")
+            cache_files = None
+            self.logger.warning("Cache is disabled, because no openmlid was used as a data descriptor")
+            all_cache_files_available = False
+
         prediction_matrices, classes = get_unique_prediction_matrices(
             X=self.X if not all_cache_files_available else None,
             y=self.y if not all_cache_files_available else None,
@@ -471,6 +477,7 @@ class ProblemInstance:
 
     def to_dict(self):
         out = {
+            "openmlid": self.openmlid,
             "data_description": self.data_description if type(self.data_description) == int else (self.data_description[0].tolist(), self.data_description[1].tolist()),
             "is_classification": self.is_classification,
             "data_seed": self.data_seed,

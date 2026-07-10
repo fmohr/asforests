@@ -34,7 +34,7 @@ def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_
         pm_path.parent.mkdir(parents=True, exist_ok=True)
 
     if cache_files is None or not pm_path.exists() or not class_path.exists():
-        if logger is not None:
+        if logger is not None and cache_files is not None:
             logger.info(f"One of the cache files {pm_path} and {class_path} do not exist yet, creating them by training RFs until we have {num_matrices} different prediction matrices.")
         while len(prediction_matrices) < num_matrices and failed_tries < max_tries:
 
@@ -55,7 +55,8 @@ def get_unique_prediction_matrices(X, y, train_indices, num_matrices, seed, max_
                 classes = _classes
             
             # update deviation metrices
-            logger.info(f"Generating prediction matrices for {X.shape[0]} instances.")
+            if logger is not None:
+                logger.info(f"Generating prediction matrices for {X.shape[0]} instances.")
             size_before = len(prediction_matrices)
             for prediction_matrix in [t.predict_proba(X) for t in ensemble_members]:
                 #pm_as_str = str(prediction_matrix)

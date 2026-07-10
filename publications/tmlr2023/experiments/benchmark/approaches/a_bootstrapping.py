@@ -11,14 +11,10 @@ class BootstrappingApproach(Approach):
         super().__init__(**kwargs)
         self.prediction_matrices = None
         self._bootstrap_size = bootstrap_size
-        print(self._bootstrap_size)
-        print(self.bootstrap_size)
         self._num_resamples = num_resamples
         self.use_caching = use_caching
         assert self._num_resamples >= 1, "num_resamples must be at least 1"
         assert self._bootstrap_size >= 2, "bootstrap_size must be at least 2"
-        print(self._bootstrap_size)
-        print(self.bootstrap_size)
         
         # state variables
         self._means_iid = self._vars_iid = None
@@ -63,7 +59,7 @@ class BootstrappingApproach(Approach):
             )
 
     def _update_iid_estimates(self, n, t):
-        self.logger.info(f"Starting updating estimates with bootstrapping.")
+        self.logger.info(f"Starting updating estimates with bootstrapping for {n=}, {t=}.")
         t = np.asarray(t).reshape(-1)
         if n is None:
             n = self.prediction_matrices[0].shape[0]
@@ -103,6 +99,8 @@ class BootstrappingApproach(Approach):
                     ensemble_predictions_on_selected_instances = ensemble_description[:size, instances_addressed_in_this_ensemble, :].mean(axis=0)
                     for i_n, num_instances in enumerate(n):
                         scores[i_e, i_n, i_t] = (((ensemble_predictions_on_selected_instances[:num_instances] - self.y_oh[instances_addressed_in_this_ensemble][:num_instances])**2).mean(axis=0).sum())
+            
+            assert len(scores) == self.bootstrap_size
             means.append(scores.mean(axis=0))
             variances.append(scores.var(axis=0))
         
@@ -155,6 +153,7 @@ class BootstrappingApproach(Approach):
             for size in t:
                 ensemble_predictions = ensemble_member_predictions[:, :size, :, :].mean(axis=1)
                 ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=1).sum(axis=1)
+                assert len(ensemble_errors) == self.bootstrap_size
                 means_for_round.append(ensemble_errors.mean())
                 vars_for_round.append(ensemble_errors.var())
             means.append(means_for_round)

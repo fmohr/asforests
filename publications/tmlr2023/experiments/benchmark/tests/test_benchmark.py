@@ -28,6 +28,12 @@ bm_logger.handlers.clear()
 bm_logger.addHandler(ch)
 bm_logger.setLevel(logging.DEBUG)
 
+# configure logger for benchmark
+a_logger = logging.getLogger("approach")
+a_logger.handlers.clear()
+a_logger.addHandler(ch)
+a_logger.setLevel(logging.DEBUG)
+
 # configure logger for tester
 logger = logging.getLogger("tester")
 logger.handlers.clear()
@@ -64,7 +70,7 @@ class TestBenchmark(TestCase):
                 json.dump(pi.to_dict(), f)
     
     
-    def test_that_benchmark_has_true_parameter_values_from_problem_instance(self):
+    def test_0_that_benchmark_has_true_parameter_values_from_problem_instance(self):
         
         # get problem instance
         w = ProblemInstanceWrapperForTesting(ensemble_seed=0)
@@ -83,7 +89,7 @@ class TestBenchmark(TestCase):
             if captured_parameter == "V[Z_nt|D_val]":
                 assert np.array_equal(pi.vars_cond, b._true_parameter)
 
-    def test_result_extraction(self):
+    def test_1_result_extraction(self):
 
         for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
 
@@ -94,8 +100,9 @@ class TestBenchmark(TestCase):
 
             # run benchmark twice for 10 iterations (10 ensemble members)
             approaches = {
-                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1, estimated_parameters=captured_parameter),
-                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100, estimated_parameters=captured_parameter)
+                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1, estimated_parameters=captured_parameter, logger=a_logger),
+                "direct": DatabaseWiseApproach(threshold_for_number_of_samples_to_exclude_param=10**3, estimated_parameters=captured_parameter, logger=a_logger),
+                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100, estimated_parameters=captured_parameter, logger=a_logger)
             }
             b.reset(approaches)
             num_steps = 10**1
@@ -112,6 +119,36 @@ class TestBenchmark(TestCase):
                         df = b.result_storage.get_errors_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
                         self.assertEqual(num_steps, len(df))
 
+    def test_positive_variance_in_estimates(self):
+        """
+            This tests that estimates are not constant, which shouldn't be the case for any approach
+        """
+
+        for captured_parameter in ["V[Z_nt]"]: #["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]:
+
+            # get benchmark
+            w = ProblemInstanceWrapperForTesting(ensemble_seed=0)
+            pi = w.pi
+            b = Benchmark(problem_instance=pi, captured_parameter=captured_parameter)
+
+            # run benchmark twice for 10 iterations (10 ensemble members)
+            approaches = {
+                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=2, num_resamples=1, estimated_parameters=captured_parameter, logger=a_logger),
+                "direct": DatabaseWiseApproach(threshold_for_number_of_samples_to_exclude_param=10**3, estimated_parameters=captured_parameter, logger=a_logger),
+                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100, estimated_parameters=captured_parameter, logger=a_logger)
+            }
+            b.reset(approaches)
+            num_steps = 10**1
+            for _ in tqdm(range(num_steps)):
+                b.step()
+            
+            # extract results
+            for a_name in approaches.keys():
+                for n in pi.n_checkpoints:
+                    for t in pi.t_checkpoints:
+                        df = b.result_storage.get_results_from_approach_for_checkpoint(approach_name=a_name, n_for_var_in_iid_case=n, t=t)
+                        self.assertFalse(np.isclose(df["estimate"].var(), 0, atol=10**-20), msg=f"Approach {a_name} shows no variance in estimates for param {captured_parameter} at {n=}, {t=}")
+    
     def test_reproducibility(self):
         
         for captured_parameter in ["E[Z_nt]", "V[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt|D_val]"]:
@@ -119,8 +156,9 @@ class TestBenchmark(TestCase):
 
             # get generator for the estimates of the approach on the given problem
             approaches = {
-                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1),
-                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100)
+                "bootstrapping": BootstrappingApproach(random_state=0, bootstrap_size=10, num_resamples=1, estimated_parameters=captured_parameter),
+                "direct": DatabaseWiseApproach(threshold_for_number_of_samples_to_exclude_param=10**3, estimated_parameters=captured_parameter),
+                "parametric model": ParametricDifferenceModelApproach(random_state=0, num_simulated_ensembles=100, estimated_parameters=captured_parameter)
             }
 
             # run benchmark twice for 10 iterations (10 ensemble members)
@@ -154,8 +192,9 @@ class TestBenchmark(TestCase):
             n_checkpoints=[2]
             t_checkpoints = [10, 100, 1000]
             approaches = {
-                "bootstrapping": BootstrappingApproach(bootstrap_size=1, num_resamples=1),
-                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
+                "bootstrapping": BootstrappingApproach(bootstrap_size=2, num_resamples=1, estimated_parameters=captured_parameter),
+                "direct": DatabaseWiseApproach(threshold_for_number_of_samples_to_exclude_param=10**3, estimated_parameters=captured_parameter),
+                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100, estimated_parameters=captured_parameter)
             }
 
             # run benchmark twice for 10 iterations (10 ensemble members)
@@ -183,7 +222,6 @@ class TestBenchmark(TestCase):
             self.assertEqual(list(storage.results.index), list(recovered_storage.results.index))
             self.assertEqual(list(storage.results.columns), list(recovered_storage.results.columns))
             for c, t1, t2 in zip(storage.results.columns, storage.results.dtypes, recovered_storage.results.dtypes):
-                print(t1, t2)
                 self.assertEqual(t1, t2, msg=f"Column type mismatch for {c}. Before this had type {t1}, but after recovery the type type is {t2}")
             for row1, row2 in zip(storage.results.values, recovered_storage.results.values):
                 for c1, c2 in zip(row1, row2):
@@ -207,8 +245,9 @@ class TestBenchmark(TestCase):
             n_checkpoints = [2]
             t_checkpoints = [10, 100, 1000]
             approaches = {
-                "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1),
-                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
+                "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1, estimated_parameters=captured_parameter),
+                "direct": DatabaseWiseApproach(threshold_for_number_of_samples_to_exclude_param=10**3, estimated_parameters=captured_parameter),
+                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100, estimated_parameters=captured_parameter)
             }
 
             # run benchmark in isolation for each approach
@@ -249,8 +288,9 @@ class TestBenchmark(TestCase):
             b = get_standard_benchmark(captured_parameter=captured_parameter)
 
             approaches = {
-                "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1),
-                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100)
+                "bootstrapping": BootstrappingApproach(bootstrap_size=10, num_resamples=1, estimated_parameters=captured_parameter),
+                "direct": DatabaseWiseApproach(threshold_for_number_of_samples_to_exclude_param=10**3, estimated_parameters=captured_parameter),
+                "parametric model": ParametricDifferenceModelApproach(num_simulated_ensembles=100, estimated_parameters=captured_parameter)
             }
 
             # run benchmark

@@ -55,8 +55,8 @@ def aggregate_results(raw_result_folders, aggregate_result_folder):
                                         for approach in rs.approach_names:
                                             run_data = rs.get_errors_from_approach_for_checkpoint(approach_name=approach, t=t, n_for_var_in_iid_case=n)
                                             param = run_data["param"].iloc[0]
-
                                             error_curve = list(run_data["error"])
+                                            assert len(np.array(error_curve).shape) == 1, "error curve should be 1D"
                                             runtime_curve = list(run_data["runtime"])
                                             results_for_dataset.append([openmlid] + [int(p) if p != "None" else None for p in parts[1:]] + [approach, param, error_curve, runtime_curve])
                                     except:
@@ -131,42 +131,7 @@ def plot_error_curves_for_approaches_on_single_dataset(df, window_size=1, b_max=
         ax.set_title(f"Estimation Error on {param} for dataset {openmlid}, {n=}, {t=}, and {val_size} instances for validation available ({np.mean(num_included_runs)} runs included on avg per approach)")
         plt.show()
 
-def plot_runtime_curves_for_approaches_on_single_dataset(df):
-    assert len(df) >= 1, f"No data available!"
-    assert len(pd.unique(df["num_possible_ensemble_members"])) == 1
-    assert len(pd.unique(df["val_size"])) == 1
-    assert len(pd.unique(df["t"])) == 1
-    assert len(pd.unique(df["n"])) == 1
-    assert len(pd.unique(df["param"])) == 1
-    
-    param = df["param"].values[0]
-    t = int(df["t"].values[0])
-    n = int(df["n"].values[0]) if param == "V[Z_nt]" else None
-    val_size = df["val_size"].values[0]
 
-    for openmlid, df_dataset in df.groupby("openmlid"):
-
-        fig, ax = plt.subplots(figsize=(20, 4))
-        num_included_runs = []
-        for algorithm, df_algo in df_dataset.groupby("approach"):
-            num_included_runs.append(len(df_algo))
-
-            runtimes_of_approach = np.abs(np.array([r for r in df_algo["runtime_curve"]]))
-            runtimes_of_approach_acc = np.cumsum(runtimes_of_approach, axis=1)
-            mu = runtimes_of_approach_acc.mean(axis=0)
-            sig = runtimes_of_approach_acc.std(axis=0)
-            budgets = np.arange(1, len(mu) + 1)
-            ax.plot(budgets, mu, label=algorithm)
-            ax.fill_between(budgets, mu - sig, mu + sig, alpha=0.2)
-        
-        #ax.set_ylim([0, 0.1])
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("$b$")
-        ax.legend()
-        ax.grid()
-        ax.set_title(f"Runtimes to estimate {param} for dataset {openmlid}, {n=}, {t=}, and {val_size} instances for validation available ({np.mean(num_included_runs)} runs included on avg per approach)")
-        plt.show()
 
 
 def plot_stability_over_time_on_single_dataset(df, window=10):
