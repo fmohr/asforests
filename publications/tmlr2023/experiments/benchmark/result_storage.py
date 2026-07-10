@@ -250,6 +250,7 @@ class ResultStorage:
             t = self.t_checkpoints
 
         estimates = self.get_results_from_approach_for_checkpoint(approach_name=approach_name, n_for_var_in_iid_case=n_for_var_in_iid_case, t=t).copy()
+        estimates["estimate"] = estimates.apply(lambda r: r["estimate"] if not r["param"].startswith("V") else np.sqrt(r["estimate"]), axis=1)
         estimates["error"] = self.compute_error(estimates)
         return estimates
     
@@ -257,8 +258,14 @@ class ResultStorage:
 
         def _f(r):
             pred = r["estimate"]
-            if r["param"] == "V[Z_nt]":
-                act = self._true_param_values[r["param"]][self.n_checkpoints.index(r["n"]), self.t_checkpoints.index(r["t"])]
+            if r["param"].startswith("V"):
+                if r["param"] == "V[Z_nt]":
+                    act = self._true_param_values[r["param"]][self.n_checkpoints.index(r["n"]), self.t_checkpoints.index(r["t"])]
+                
+                # for the variance, predictions are actually for the standard deviatio, so the error should also be compared to this
+                else:
+                    act = self._true_param_values[r["param"]][self.t_checkpoints.index(r["t"])]
+                act = np.sqrt(act)
             else:
                 act = self._true_param_values[r["param"]][self.t_checkpoints.index(r["t"])]
             return pred - act

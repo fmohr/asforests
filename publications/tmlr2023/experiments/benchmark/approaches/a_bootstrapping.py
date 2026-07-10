@@ -7,15 +7,18 @@ from experiments.benchmark.tests.util import get_problem_instance_for_openmlid, 
 
 class BootstrappingApproach(Approach):
 
-    def __init__(self, bootstrap_size, num_resamples, sample_in_instance_space=True, use_caching=True, **kwargs):
+    def __init__(self, bootstrap_size, num_resamples, use_caching=True, **kwargs):
         super().__init__(**kwargs)
         self.prediction_matrices = None
         self._bootstrap_size = bootstrap_size
+        print(self._bootstrap_size)
+        print(self.bootstrap_size)
         self._num_resamples = num_resamples
-        self.sample_in_instance_space = sample_in_instance_space
         self.use_caching = use_caching
         assert self._num_resamples >= 1, "num_resamples must be at least 1"
         assert self._bootstrap_size >= 2, "bootstrap_size must be at least 2"
+        print(self._bootstrap_size)
+        print(self.bootstrap_size)
         
         # state variables
         self._means_iid = self._vars_iid = None
@@ -35,7 +38,7 @@ class BootstrappingApproach(Approach):
     def bootstrap_size(self):
         return self._bootstrap_size
     
-    @num_resamples.setter
+    @bootstrap_size.setter
     def bootstrap_size(self, val):
         if val < 1:
             raise ValueError(f"bootstrap_size must be at least 2")
@@ -86,55 +89,38 @@ class BootstrappingApproach(Approach):
         means = []
         variances = []
         self.logger.debug(f"Now sampling {self.num_resamples} times {self.bootstrap_size} ensembles of size {max(t)}")
-        if self.sample_in_instance_space:
-            for i in range(self.num_resamples):
-                self.logger.debug(f"Creating %s-th bootstrap sample", i)
+        for i in range(self.num_resamples):
+            self.logger.debug(f"Creating %s-th bootstrap sample", i)
 
-                # create random ensemble of the maximum given size
-                ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.bootstrap_size, max(t)))
-                ensemble_member_predictions = matrices[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + matrices.shape[1:])
+            # create random ensemble of the maximum given size
+            ensemble_descriptors_through_indices = self.random_state.randint(0, b, size=(self.bootstrap_size, max(t)))
+            ensemble_member_predictions = matrices[ensemble_descriptors_through_indices.ravel()].reshape(ensemble_descriptors_through_indices.shape + matrices.shape[1:])
 
-                scores = np.zeros((self.bootstrap_size, len(n), len(t)))
-                for i_t, size in enumerate(t):
-                    for i_e, ensemble_description in enumerate(ensemble_member_predictions):
-                        instances_addressed_in_this_ensemble = self.random_state.randint(0, ensemble_description.shape[1], size=max(n))
-                        ensemble_predictions_on_selected_instances = ensemble_description[:size, instances_addressed_in_this_ensemble, :].mean(axis=0)
-                        for i_n, num_instances in enumerate(n):
-                            scores[i_e, i_n, i_t] = (((ensemble_predictions_on_selected_instances[:num_instances] - self.y_oh[instances_addressed_in_this_ensemble][:num_instances])**2).mean(axis=0).sum())
-                means.append(scores.mean(axis=0))
-                variances.append(scores.var(axis=0))
-            
-            means_across_bootstrapsamples = np.mean(means, axis=0)
-            vars_across_bootstrapsamples = np.mean(variances, axis=0)
-
-            for i_n, _n in enumerate(n):
-                for i_t, _t in enumerate(t):
-                    if _t not in self._means_iid:
-                        self._means_iid[_t] = means_across_bootstrapsamples[i_n, i_t]
-                    if (_n, _t) not in self._vars_iid:
-                        self._vars_iid[(_n, _t)] = vars_across_bootstrapsamples[i_n, i_t]
+            scores = np.zeros((self.bootstrap_size, len(n), len(t)))
+            for i_t, size in enumerate(t):
+                for i_e, ensemble_description in enumerate(ensemble_member_predictions):
+                    instances_addressed_in_this_ensemble = self.random_state.randint(0, ensemble_description.shape[1], size=max(n))
+                    ensemble_predictions_on_selected_instances = ensemble_description[:size, instances_addressed_in_this_ensemble, :].mean(axis=0)
+                    for i_n, num_instances in enumerate(n):
+                        scores[i_e, i_n, i_t] = (((ensemble_predictions_on_selected_instances[:num_instances] - self.y_oh[instances_addressed_in_this_ensemble][:num_instances])**2).mean(axis=0).sum())
+            means.append(scores.mean(axis=0))
+            variances.append(scores.var(axis=0))
         
-        # if we do not sample in instance space, we always take exactly the given validation data
-        else:
-            raise RuntimeError("Not correctly implemented")
+        means_across_bootstrapsamples = np.mean(means, axis=0)
+        vars_across_bootstrapsamples = np.mean(variances, axis=0)
 
-            # compute errors for different sub-sizes of this ensemble on the given data
-            means_for_round = []
-            vars_for_round = []
-            for size in t:
-                ensemble_predictions = ensemble_member_predictions[:, :size, :, :].mean(axis=1)
-                ensemble_errors = ((ensemble_predictions - self.y_oh)**2).mean(axis=1).sum(axis=1)
-                means_for_round.append(ensemble_errors.mean())
-                vars_for_round.append(ensemble_errors.var())
-            means.append(means_for_round)
-            variances.append(vars_for_round)        
-            self._means_cond = np.array(means).mean(axis=0)
-            self._vars_cond = np.array(variances).mean(axis=0)
+        for i_n, _n in enumerate(n):
+            for i_t, _t in enumerate(t):
+                if _t not in self._means_iid:
+                    self._means_iid[_t] = means_across_bootstrapsamples[i_n, i_t]
+                if (_n, _t) not in self._vars_iid:
+                    self._vars_iid[(_n, _t)] = vars_across_bootstrapsamples[i_n, i_t]
+        
         self.logger.info(f"Finished updating estimates with bootstrapping.")
 
     def _update_conditional_estimates(self, t):
-        self.logger.info(f"Starting updating estimates with bootstrapping using {self.num_resamples} resamples.")
         assert self.num_resamples > 0, f"Cannot do bootstrapping without at least one re-sample. {self.num_resamples}"
+        self.logger.info(f"Starting updating estimates for t={[int(_t) for _t in t]} with bootstrapping using {self.num_resamples} re-sample(s), each one of size {self.bootstrap_size}.")
         t = np.asarray(t).reshape(-1)
 
         # initialize mean and var dictionaries if necessary
@@ -173,7 +159,7 @@ class BootstrappingApproach(Approach):
                 vars_for_round.append(ensemble_errors.var())
             means.append(means_for_round)
             variances.append(vars_for_round)
-        
+            
         # sanity check
         assert len(means) > 0, "No means defined"
         assert len(variances) > 0, "No variances defined"

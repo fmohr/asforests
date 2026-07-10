@@ -43,7 +43,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     a_logger = logging.getLogger("approach")
     a_logger.handlers.clear()
     a_logger.addHandler(ch)
-    a_logger.setLevel(logging.WARNING)
+    a_logger.setLevel(logging.DEBUG)
 
     # configure logger of benchmark
     bm_logger = logging.getLogger("benchmark")
@@ -95,7 +95,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     method_name = keyfields["method"]
 
     # create benchmark
-    captured_parameters = ["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]
+    captured_parameters = ["V[Z_nt|D_val]"]#["E[Z_nt]", "E[Z_nt|D_val]", "V[Z_nt]", "V[Z_nt|D_val]"]
     #captured_parameters = ["V[Z_nt]", "V[Z_nt|D_val]"]
     for captured_parameter in captured_parameters:
 
@@ -120,10 +120,12 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
                 num_resamples=num_resamples,
                 logger=a_logger
             )
+            assert approach.bootstrap_size == bootstrap_size, f"Bootstrap size not correctly copied. Should be {bootstrap_size} but is {approach.bootstrap_size}"
+            assert approach.num_resamples == num_resamples, f"Number of resamples not correctly copied. Should be {num_resamples} but is {approach.num_resamples}"
         elif method_name.startswith("direct"):
             _, exp_for_threshold_for_number_of_samples_to_exclude_param = method_name.split("-")
             exp_for_threshold_for_number_of_samples_to_exclude_param = int(exp_for_threshold_for_number_of_samples_to_exclude_param)
-                                                                                
+            
             approach = DatabaseWiseApproach(
                 random_state=0,
                 estimated_parameters=[captured_parameter],
@@ -198,16 +200,16 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
 
 if __name__ == "__main__":
 
-    # if True:
-    #     run_experiment({
-    #         "openmlid": 1049,
-    #         "num_possible_ensemble_members": 64,
-    #         "validation_instances": 64,
-    #         "data_seed": 0,
-    #         "ensemble_sequence_seed": 1,
-    #         "method": "parametric-3"
-    #     }, None, None)
-    #     exit(0)
+    if False:
+        run_experiment({
+            "openmlid": 1049,
+            "num_possible_ensemble_members": 64,
+            "validation_instances": 64,
+            "data_seed": 0,
+            "ensemble_sequence_seed": 1,
+            "method": "bootstrapping-1-10"
+        }, None, None)
+        exit(0)
 
     if "SLURM_PROCID" in os.environ:
         rank = int(os.environ["SLURM_PROCID"])
