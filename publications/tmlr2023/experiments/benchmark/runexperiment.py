@@ -43,7 +43,7 @@ def run_experiment(keyfields: dict, result_processor, custom_config):
     a_logger = logging.getLogger("approach")
     a_logger.handlers.clear()
     a_logger.addHandler(ch)
-    a_logger.setLevel(logging.DEBUG)
+    a_logger.setLevel(logging.WARNING)
 
     # configure logger of benchmark
     bm_logger = logging.getLogger("benchmark")
