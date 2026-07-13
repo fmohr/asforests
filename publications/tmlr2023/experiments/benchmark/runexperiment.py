@@ -207,7 +207,7 @@ if __name__ == "__main__":
             "validation_instances": 64,
             "data_seed": 0,
             "ensemble_sequence_seed": 1,
-            "method": "bootstrapping-1-10"
+            "method": "bootstrapping-100-100"
         }, None, None)
         exit(0)
 

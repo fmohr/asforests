@@ -477,7 +477,6 @@ class ProblemInstance:
 
     def to_dict(self):
         out = {
-            "openmlid": self.openmlid,
             "data_description": self.data_description if type(self.data_description) == int else (self.data_description[0].tolist(), self.data_description[1].tolist()),
             "is_classification": self.is_classification,
             "data_seed": self.data_seed,
