@@ -223,7 +223,7 @@ if __name__ == "__main__":
     pe = PyExperimenter(
         name="ensembles",
         use_codecarbon=False,
-        experiment_configuration_file_path=f"config/experiments.yaml"
+        experiment_configuration_file_path=f"config/experiments_full.yaml"
         )
 
     while True:
