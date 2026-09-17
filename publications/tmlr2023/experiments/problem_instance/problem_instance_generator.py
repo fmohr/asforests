@@ -57,7 +57,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         )
 
     # core configuration
-    n_checkpoints=np.array([1, 2, 10, 100, 1000])
+    n_checkpoints=np.array([1])
     t_checkpoints=np.array([1, 2, 10, 100, 1000])
     num_samples_allowed_for_ground_truth_approximation = NUM_SAMPLES
     n_jobs=N_JOBS
@@ -120,16 +120,17 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     logger.info(scores_iid.shape)
 
     # approximate ground truth for conditional case
-    gtc_cond = GroundTruthComputer(deviations=pi.deviations_val, logger=logger)
-    scores_cond = gtc_cond.sample_conditional_scores(
-        t_checkpoints=t_checkpoints,
-        num_samples=num_samples_allowed_for_ground_truth_approximation,
-        num_samples_per_job=num_samples_per_job,
-        n_jobs=N_JOBS,
-        max_entries_in_batch_matrix=10**8,
-        cachefile=file
-    )
-    print(scores_cond.shape)
+    if False:
+        gtc_cond = GroundTruthComputer(deviations=pi.deviations_val, logger=logger)
+        scores_cond = gtc_cond.sample_conditional_scores(
+            t_checkpoints=t_checkpoints,
+            num_samples=num_samples_allowed_for_ground_truth_approximation,
+            num_samples_per_job=num_samples_per_job,
+            n_jobs=N_JOBS,
+            max_entries_in_batch_matrix=10**8,
+            cachefile=file
+        )
+        print(scores_cond.shape)
     t_end = time.time()
     logger.info(
         f"Overall time to approximate ground truth was {t_end - t_start}s."
@@ -139,7 +140,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     # dump instance
     d = pi.to_dict()
     d["scores_iid"] = np.round(scores_iid, 4).tolist()
-    d["scores_cond"] = np.round(scores_cond, 4).tolist()
+    #d["scores_cond"] = np.round(scores_cond, 4).tolist()
     d.pop("y_oh") # we don't want/need to serialize the ground truth labels
     d.pop("deviations") # we don't want/need to serialize the deviations
     d["validation_instances_per_class"] = validation_instances # memorize this configuration for easier later comparison
@@ -162,8 +163,8 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
-    N_JOBS = 1
-    NUM_SAMPLES = 10**5
+    #N_JOBS = 1
+    #NUM_SAMPLES = 10**2
     # run_experiment(keyfields={
     #     "openmlid": 12,
     #     "num_possible_ensemble_members": 1,
