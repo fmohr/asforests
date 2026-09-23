@@ -163,13 +163,13 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
 
 
 if __name__ == "__main__":
-    #N_JOBS = 1
-    #NUM_SAMPLES = 10**2
+    # N_JOBS = 1
+    # NUM_SAMPLES = 10**2
     # run_experiment(keyfields={
-    #     "openmlid": 12,
-    #     "num_possible_ensemble_members": 1,
-    #     "data_seed": 7,
-    #     "validation_instances": 1
+    #     "openmlid": 1515,
+    #     "num_possible_ensemble_members": 8,
+    #     "data_seed": 2,
+    #     "validation_instances": 256
     # }, result_processor=None, custom_config=None)
     # exit(0)
 
