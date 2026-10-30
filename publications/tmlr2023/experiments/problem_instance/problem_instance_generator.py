@@ -86,9 +86,9 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         logger.info("Serializing existing ProblemInstance file.")
         pi.serialize(pi_file)
     else:
-        logger.info("Unserializing existing ProblemInstance file.")
+        logger.info(f"Unserializing existing ProblemInstance file {pi_file}.")
         pi = ProblemInstance.unserialize(pi_file)
-        logger.info("ProblemInstance unserialized. Now checking it.")
+        logger.info(f"ProblemInstance {pi_file} unserialized. Now checking it.")
 
     assert pi.deviations_val.shape[1] == validation_instances, f"Expected {validation_instances} validation instances, but ProblemInstance has {len(pi.deviations_val)}"
     logger.info("Done, ProblemInstance is coherent with experiment setting.")
@@ -166,10 +166,10 @@ if __name__ == "__main__":
     # N_JOBS = 1
     # NUM_SAMPLES = 10**2
     # run_experiment(keyfields={
-    #     "openmlid": 1515,
-    #     "num_possible_ensemble_members": 8,
-    #     "data_seed": 2,
-    #     "validation_instances": 256
+    #     "openmlid": 42769,
+    #     "num_possible_ensemble_members": 1,
+    #     "data_seed": 0,
+    #     "validation_instances": 2
     # }, result_processor=None, custom_config=None)
     # exit(0)
 
