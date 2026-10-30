@@ -75,9 +75,13 @@ class ProblemInstance:
             assert len(self._predictions.shape) == 3, f"Predictions should have dimensionality 3 but has dimensionality {len(self._predictions.shape)}"
     
     @classmethod
-    def unserialize(cls, path_to_file):    
-        with open(path_to_file, "r") as reader:
-            return ProblemInstance.from_dict(json.load(reader))
+    def unserialize(cls, path_to_file):
+        try:
+            with open(path_to_file, "r") as reader:
+                return ProblemInstance.from_dict(json.load(reader))
+        except:
+            print(f"Error in reading file from path {path_to_file}")
+            raise
 
     @classmethod
     def load_from_instance_file(cls, openmlid, data_seed, num_possible_ensemble_members, validation_instances):
