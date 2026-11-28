@@ -282,7 +282,7 @@ class GroundTruthComputer:
             results = [collect_scores_for_job(x, t_checkpoints) for x in range(num_sub_jobs)]
         
         out = np.concatenate(results)
-        self.logger.info(f"Finished iid score sampling. Obtained array of shape {out.shape}.")
+        self.logger.info(f"Finished contidional score sampling. Obtained array of shape {out.shape}.")
         return out
     
     def approximate_true_parameters_in_iid_setting_by_sampling(self, t_checkpoints, n_checkpoints=2, num_samples=10**6, num_samples_per_job=10**5, n_jobs=1, max_entries_in_batch_matrix = 10**8):
