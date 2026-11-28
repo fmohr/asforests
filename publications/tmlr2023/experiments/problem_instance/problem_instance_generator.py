@@ -130,7 +130,6 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
             max_entries_in_batch_matrix=10**8,
             cachefile=file
         )
-        print(scores_cond.shape)
     t_end = time.time()
     logger.info(
         f"Overall time to approximate ground truth was {t_end - t_start}s."
@@ -140,7 +139,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     # dump instance
     d = pi.to_dict()
     d["scores_iid"] = np.round(scores_iid, 4).tolist()
-    #d["scores_cond"] = np.round(scores_cond, 4).tolist()
+    d["scores_cond"] = np.round(scores_cond, 4).tolist()
     d.pop("y_oh") # we don't want/need to serialize the ground truth labels
     d.pop("deviations") # we don't want/need to serialize the deviations
     d["validation_instances_per_class"] = validation_instances # memorize this configuration for easier later comparison
