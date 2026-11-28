@@ -120,7 +120,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
     logger.info(scores_iid.shape)
 
     # approximate ground truth for conditional case
-    if False:
+    if True:
         gtc_cond = GroundTruthComputer(deviations=pi.deviations_val, logger=logger)
         scores_cond = gtc_cond.sample_conditional_scores(
             t_checkpoints=t_checkpoints,
