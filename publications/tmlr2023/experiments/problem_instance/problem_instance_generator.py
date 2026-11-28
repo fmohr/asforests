@@ -57,7 +57,7 @@ def create_problem_instance_file_with_ground_truth_values(openmlid, data_seed, n
         )
 
     # core configuration
-    n_checkpoints=np.array([1])
+    n_checkpoints=np.array([2, 10, 100, 1000])
     t_checkpoints=np.array([1, 2, 10, 100, 1000])
     num_samples_allowed_for_ground_truth_approximation = NUM_SAMPLES
     n_jobs=N_JOBS
